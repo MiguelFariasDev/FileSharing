@@ -7,6 +7,7 @@ builder.Services.AddControllers();
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddAuthServices(builder.Configuration);
 builder.Services.AddJwtAuthentication();
+builder.Services.AddFileStorage(builder.Configuration);
 builder.Services.AddSwaggerWithJwtSupport();
 
 var app = builder.Build();

@@ -1,6 +1,6 @@
 # Segurança
 
-Documentação da segurança implementada até a Etapa 2 (Autenticação e JWT). Tópicos de S3, links públicos e expiração de arquivos serão documentados nas etapas correspondentes.
+Documentação da segurança implementada até a Etapa 3 (Autenticação/JWT + Upload de arquivos). Link público de download, rate limiting da rota pública e expiração automática (job em background) serão documentados nas etapas correspondentes.
 
 ---
 
@@ -56,6 +56,25 @@ O pipeline HTTP aplica `UseAuthentication()` antes de `UseAuthorization()`.
 
 - `POST /api/auth/login` retorna sempre a mesma mensagem — `"Credenciais inválidas."` — tanto para e-mail inexistente quanto para senha incorreta, com o mesmo código HTTP (`401`), para não revelar se um e-mail está ou não cadastrado.
 - `GET /api/auth/me` retorna `401` genérico tanto para ausência de token quanto para token inválido/expirado.
+
+## Upload de arquivos e armazenamento (S3)
+
+- **Bucket privado.** `filesharing-dev` (LocalStack) é criado com Public Access Block habilitado (`infrastructure/docker/localstack-init/01-create-bucket.sh`); em produção, o bucket real deve manter a mesma configuração — nunca tornar o bucket ou objetos públicos.
+- **O conteúdo do arquivo nunca passa pela API.** `POST /api/files/upload` recebe só metadata e devolve uma presigned URL; o MAUI envia os bytes direto ao S3 via `PUT`. A API nunca vê, armazena ou faz proxy do conteúdo.
+- **Presigned URL de vida curta** (`FileStorage:PresignedUploadExpirationMinutes`, 15 min por padrão) — não confundir com a janela de 24h do arquivo (`File.ExpiresAt`), que só começa a contar depois do `complete`, nunca da emissão da URL.
+- **`StorageKey` é opaco e não previsível** (`RandomTokenGenerator`, `RandomNumberGenerator` — nunca `Guid.NewGuid()` truncado, nunca sequencial), e nunca deriva do nome original do arquivo (`OriginalFileName != StorageKey`).
+- **Nada é confiado sem verificação:** nome do arquivo, Content-Type e tamanho declarados pelo cliente no `initiate` são validados contra `FileTypePolicy`/`FileStorageOptions.MaxFileSizeBytes` (`InitiateUploadRequestValidator`); no `complete`, o tamanho e o Content-Type são reconfirmados contra o **objeto real no S3** — se algo não bater, o arquivo nunca vira `Active`.
+- **Ownership sempre verificado.** `POST /api/files/{id}/complete` só age sobre um `File` que pertence ao usuário do JWT; "não existe" e "pertence a outro usuário" retornam a mesma resposta (`404`), sem diferenciação.
+- **Allowlist explícita de tipos** (`FileTypePolicy`): documentos (PDF, EPUB), imagens (JPEG/PNG/WebP/GIF), vídeo (MP4/WebM/MOV/MKV), áudio (MP3/WAV/OGG/M4A/AAC/FLAC) e ZIP (pastas). Sem executáveis, sem scripts, sem allowlist "genérica" — extensão e Content-Type devem ser consistentes entre si.
+- **Sem Base64 em nenhum ponto do fluxo** — o conteúdo trafega como bytes crus no corpo do `PUT`; Base64 só aumentaria o tamanho transferido sem qualquer ganho.
+- **Arquivos individuais nunca são recomprimidos.** Só pastas passam por compressão (ZIP, lossless, feito no cliente MAUI antes do upload) — a Api/Infrastructure não decodifica nem recodifica nenhum arquivo.
+- **Credenciais AWS nunca chegam ao MAUI.** O app mobile só conhece a presigned URL recebida da API; não existe (e não deveria existir) `AWSSDK.*` no projeto `FileSharing.Mobile`.
+- **Segredos AWS seguem o mesmo padrão do `Jwt:SecretKey`:** em desenvolvimento, `AWS:AccessKey`/`AWS:SecretKey` em `appsettings.Development.json` são credenciais dummy do LocalStack (`test`/`test`, aceitas apenas por ele) — nunca credenciais reais. Em produção, a AWS Access Key/Secret Key não devem existir em arquivo algum: usar IAM Role (ECS Task Role) ou AWS Secrets Manager.
+- **Nada de presigned URL, token ou credencial em log.** Os serviços de upload (`FileUploadService`, `S3FileStorageService`) não logam a URL pré-assinada nem qualquer segredo — apenas dados não sensíveis (ex.: `FileId`) seriam candidatos a log em uma etapa futura de observabilidade.
+
+### Por que a API falha sem configuração
+
+`Jwt:SecretKey` vazio e `ConnectionStrings:Postgres` ausente já faziam a API recusar-se a subir corretamente (Etapa 2). O mesmo princípio se aplica ao storage: sem `FileStorage:BucketName`/`AWS:ServiceURL` configurados, as chamadas ao S3 simplesmente falham (o cliente tenta o AWS real, sem credenciais/bucket válidos) em vez de silenciosamente fingir sucesso — nunca há um "modo mock" implícito em produção.
 
 ## Outras práticas aplicadas
 

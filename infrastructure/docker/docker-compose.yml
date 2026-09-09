@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: filesharing-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: filesharing
+    # 5433 no host para não colidir com um PostgreSQL local já instalado na 5432.
+    ports:
+      - "5433:5432"
+    volumes:
+      - filesharing-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Simula o Amazon S3 localmente. O bucket de desenvolvimento é criado automaticamente
+  # pelo script em localstack-init/ assim que o serviço fica pronto.
+  localstack:
+    image: localstack/localstack:3
+    container_name: filesharing-localstack
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./localstack-init:/etc/localstack/init/ready.d
+      - filesharing-localstack-data:/var/lib/localstack
+
+volumes:
+  filesharing-postgres-data:
+  filesharing-localstack-data:

@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using FileSharing.Api.Extensions;
 using FileSharing.Application.DTOs.Auth;
 using FileSharing.Application.Services.Auth;
@@ -67,8 +65,7 @@ public class AuthController : ControllerBase
     [HttpGet("me")]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
-        var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
-        if (subject is null || !Guid.TryParse(subject, out var userId))
+        if (!User.TryGetUserId(out var userId))
             return Unauthorized();
 
         var result = await _authService.GetCurrentUserAsync(userId, cancellationToken);

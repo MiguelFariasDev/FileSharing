@@ -134,27 +134,38 @@ docker-compose.yml
 ### Passos
 
 ```bash
-# Subir a API, o PostgreSQL e o LocalStack (simulação do S3)
-docker-compose up -d
+# appsettings.Development.json é git-ignorado (nunca versionar strings de conexão/credenciais) —
+# copie o template com os valores de desenvolvimento do LocalStack (não são segredos reais)
+cp src/FileSharing.Api/appsettings.Development.json.example src/FileSharing.Api/appsettings.Development.json
+
+# Subir o PostgreSQL e o LocalStack (simulação do S3)
+cd infrastructure/docker
+docker compose up -d
+cd ../..
+
+# Configurar o segredo do JWT (uma vez por máquina de desenvolvimento)
+dotnet user-secrets set "Jwt:SecretKey" "<chave-aleatoria-de-pelo-menos-32-bytes>" --project src/FileSharing.Api
 
 # Aplicar as migrações do banco de dados
-dotnet ef database update -p src/FileSharing.Infrastructure -s src/FileSharing.Api
+ASPNETCORE_ENVIRONMENT=Development dotnet ef database update -p src/FileSharing.Infrastructure -s src/FileSharing.Api
 
-# Rodar a API
+# Rodar a API (usa appsettings.Development.json: Postgres na porta 5433, LocalStack em http://localhost:4566)
 dotnet run --project src/FileSharing.Api
 
 # Rodar o frontend Blazor
 dotnet run --project src/FileSharing.Web
 ```
 
-Para o aplicativo Android, abra `src/FileSharing.Mobile` no Visual Studio Code com a extensão C# Dev Kit e execute em um emulador Android configurado localmente.
+Para o aplicativo Android, abra `src/FileSharing.Mobile` no Visual Studio Code com a extensão C# Dev Kit e execute em um emulador Android configurado localmente. Veja `docs/architecture.md` para os detalhes do fluxo de upload MAUI → API → S3.
 
 ## Testes
 
 ```bash
-dotnet test tests/FileSharing.Domain.Tests
-dotnet test tests/FileSharing.Application.Tests
-dotnet test tests/FileSharing.Api.IntegrationTests
+dotnet test tests/FileSharing.UnitTests
+dotnet test tests/FileSharing.ApiTests
+
+# Requer o LocalStack ativo (docker compose up -d em infrastructure/docker)
+dotnet test tests/FileSharing.IntegrationTests
 ```
 
 ## Escopo desta versão
