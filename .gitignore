@@ -1,0 +1,145 @@
+## ============================
+## .NET / Visual Studio / Rider
+## ============================
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.dotCover
+*.psess
+*.vsp
+*.vspx
+
+## ============================
+## Build results
+## ============================
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## ============================
+## NuGet
+## ============================
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## ============================
+## .NET MAUI / Mobile (Android)
+## ============================
+*.apk
+*.aab
+*.ap_
+*.dex
+*.jks
+*.keystore
+android/local.properties
+**/Platforms/Android/bin/
+**/Platforms/Android/obj/
+**/*.androidproj.user
+
+## Caso o build iOS seja adicionado futuramente
+*.ipa
+*.mobileprovision
+*.p12
+*.p8
+**/Platforms/iOS/bin/
+**/Platforms/iOS/obj/
+
+## ============================
+## Blazor / Frontend
+## ============================
+wwwroot/dist/
+node_modules/
+npm-debug.log*
+
+## ============================
+## Testes
+## ============================
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+TestResults/
+
+## ============================
+## Docker / LocalStack
+## ============================
+.localstack/
+docker-compose.override.yml
+*.pid
+
+## ============================
+## Segredos e configuração local
+## ============================
+## Nunca versionar strings de conexão, chaves JWT ou credenciais AWS
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+.env
+.env.*
+!.env.example
+*.pfx
+secrets.json
+**/Properties/launchSettings.json
+
+## Credenciais AWS (se algum script local gerar arquivos de config)
+.aws/
+aws-exports.js
+
+## ============================
+## EF Core
+## ============================
+## Mantenha as migrations versionadas; ignore apenas artefatos de scaffold temporário
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+
+## ============================
+## Sistema operacional
+## ============================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## ============================
+## Hangfire (se usar storage local em dev)
+## ============================
+hangfire.db
+
+## ============================
+## Diversos
+## ============================
+*.log
+*.tmp
+*.bak
+*.swp
+*~
