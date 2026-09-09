@@ -142,4 +142,4 @@ hangfire.db
 *.tmp
 *.bak
 *.swp
-*~
+*~CLAUDE.md
