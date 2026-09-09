@@ -1,6 +1,26 @@
 @FileSharing.Api_HostAddress = http://localhost:5105
 
-GET {{FileSharing.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+POST {{FileSharing.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SenhaForte123"
+}
+
+###
+
+POST {{FileSharing.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SenhaForte123"
+}
+
+###
+
+GET {{FileSharing.Api_HostAddress}}/api/auth/me
+Authorization: Bearer {{authToken}}
 
 ###

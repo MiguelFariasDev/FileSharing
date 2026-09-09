@@ -1,2 +1,15 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FileSharing.Api/FileSharing.Api.csproj" />
+    <Project Path="src/FileSharing.Application/FileSharing.Application.csproj" />
+    <Project Path="src/FileSharing.Domain/FileSharing.Domain.csproj" />
+    <Project Path="src/FileSharing.Infrastructure/FileSharing.Infrastructure.csproj" />
+    <Project Path="src/FileSharing.Mobile/FileSharing.Mobile.csproj" />
+    <Project Path="src/FileSharing.Web/FileSharing.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FileSharing.ApiTests/FileSharing.ApiTests.csproj" />
+    <Project Path="tests/FileSharing.IntegrationTests/FileSharing.IntegrationTests.csproj" />
+    <Project Path="tests/FileSharing.UnitTests/FileSharing.UnitTests.csproj" />
+  </Folder>
 </Solution>
