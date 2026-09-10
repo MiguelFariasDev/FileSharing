@@ -2,6 +2,8 @@ namespace FileSharing.Domain.Entities;
 
 public class Download
 {
+    public const int MaxUserAgentLength = 1000;
+
     public Guid Id { get; private set; }
     public Guid FileId { get; private set; }
     public DateTimeOffset DownloadedAt { get; private set; }

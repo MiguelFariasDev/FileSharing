@@ -16,6 +16,17 @@ public interface IFileStorageService
         string contentType,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates a short-lived presigned URL the client can use to GET the object's content
+    /// directly from storage. Distinct from <see cref="CreatePresignedUploadUrlAsync"/> —
+    /// different verb, and a much shorter, independently configured expiration
+    /// (<see cref="FileStorageOptions.DownloadUrlExpirationSeconds"/>) — never the upload
+    /// URL's lifetime, and never the file's 24h <c>ExpiresAt</c> window.
+    /// </summary>
+    Task<PresignedDownloadUrl> CreatePresignedDownloadUrlAsync(
+        string storageKey,
+        CancellationToken cancellationToken = default);
+
     Task<bool> ObjectExistsAsync(string storageKey, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -27,5 +38,7 @@ public interface IFileStorageService
 }
 
 public record PresignedUploadUrl(string Url, DateTimeOffset ExpiresAt);
+
+public record PresignedDownloadUrl(string Url, DateTimeOffset ExpiresAt);
 
 public record StorageObjectMetadata(long SizeBytes, string? ContentType);

@@ -25,7 +25,7 @@ PostgreSQL via Entity Framework Core (`Npgsql.EntityFrameworkCore.PostgreSQL`). 
 | SizeBytes | bigint | declarado no initiate, **reconfirmado** contra o S3 no complete |
 | IsFolder | boolean | `true` quando o `File` representa uma pasta compactada |
 | CompressionType | integer (enum) | `None = 0`, `Zip = 1` — sempre `Zip` quando `IsFolder = true`, sempre `None` quando `false` |
-| AccessTokenHash | varchar(64), nullable | **nulo até a Etapa 4** (link público) — não existe token de acesso enquanto o arquivo é só `PendingUpload`/`Active` sem link gerado; índice único (permite múltiplos `NULL` no Postgres) |
+| AccessTokenHash | varchar(64), nullable | hash SHA-256 (hex) do token público de acesso, `NULL` até que `POST /api/files/{id}/link` gere um link (Etapa 4) — nunca o token em texto puro; índice **único** (permite múltiplos `NULL` no Postgres, já que a maioria dos arquivos nunca terá um link gerado) |
 | Status | integer (enum) | `PendingUpload = 0`, `Active = 1`, `Expired = 2` |
 | CreatedAt | timestamptz, nullable | **nulo enquanto `PendingUpload`**; definido no momento exato da confirmação do upload (`File.CompleteUpload`) |
 | ExpiresAt | timestamptz, nullable | **nulo enquanto `PendingUpload`**; sempre `CreatedAt + 24h` quando definido; índice (para a futura rotina de expiração) |
@@ -36,15 +36,15 @@ PostgreSQL via Entity Framework Core (`Npgsql.EntityFrameworkCore.PostgreSQL`). 
 |---|---|---|
 | Id | uuid | PK |
 | FileId | uuid | FK → `files.Id`, cascade delete |
-| DownloadedAt | timestamptz | obrigatório |
-| IpAddress | varchar(45) | obrigatório |
-| UserAgent | varchar(1000) | obrigatório |
+| DownloadedAt | timestamptz | obrigatório, UTC — capturado no momento em que o download é autorizado (ver `docs/architecture.md`) |
+| IpAddress | varchar(45) | obrigatório — `HttpContext.Connection.RemoteIpAddress` (IP real do peer TCP, não um header); 45 já é o tamanho máximo de uma representação IPv6 canônica |
+| UserAgent | varchar(1000) | obrigatório — `Request.Headers.UserAgent`; `"unknown"` quando ausente, truncado em `Download.MaxUserAgentLength` (1000) quando maior que o limite da coluna |
 
-(`downloads` ainda não é escrita por nenhum fluxo até a Etapa 3 — pertence à etapa de download público.)
+Escrita, desde a Etapa 5, por `GET /api/public/files/{token}/download` (`FileSharing.Application.Services.Files.FileDownloadService`) — um registro por chamada bem-sucedida, nunca por uma chamada rejeitada (token inválido/expirado, arquivo não `Active`, ou objeto ausente no S3).
 
 ## Por que `CreatedAt`/`ExpiresAt`/`AccessTokenHash` são nuláveis
 
-Na Etapa 1, `File` era criado já `Active`. A partir da Etapa 3, `File` nasce `PendingUpload` (registro criado + presigned URL emitida, upload ainda não confirmado) e só vira `Active` quando `POST /api/files/{id}/complete` confirma o objeto no S3. Um arquivo `PendingUpload` genuinamente não tem "quando foi criado (efetivamente)" nem "quando expira" — por isso essas colunas passaram a aceitar `NULL`, em vez de receber um valor provisório que seria enganoso.
+Na Etapa 1, `File` era criado já `Active`. A partir da Etapa 3, `File` nasce `PendingUpload` (registro criado + presigned URL emitida, upload ainda não confirmado) e só vira `Active` quando `POST /api/files/{id}/complete` confirma o objeto no S3. Um arquivo `PendingUpload` genuinamente não tem "quando foi criado (efetivamente)" nem "quando expira" — por isso essas colunas passaram a aceitar `NULL`, em vez de receber um valor provisório que seria enganoso. `AccessTokenHash` segue o mesmo raciocínio: a maioria dos arquivos `Active` nunca chega a ter um link gerado, então "nenhum token ainda" é `NULL`, não uma string vazia/sentinela.
 
 ## Migrations
 
@@ -58,7 +58,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef database update -p src/FileSharing.
 
 `ASPNETCORE_ENVIRONMENT=Development` é necessário para que a connection string de `appsettings.Development.json` seja carregada — sem ela, `AddPersistence` não configura nenhum provider (ver `docs/security.md`, "por que a API falha sem configuração").
 
-Migration existente: `InitialCreate` (Etapa 3) — cria `users`, `files` (já com todos os campos da Etapa 3) e `downloads` em um único migration inicial, já que nenhuma migration havia sido criada nas Etapas 1/2.
+Migration existente: `InitialCreate` (Etapa 3) — cria `users`, `files` (já com todos os campos, incluindo `AccessTokenHash` e seu índice único, antecipando a Etapa 4) e `downloads` (já com todos os campos usados pela Etapa 5: `FileId`, `DownloadedAt`, `IpAddress`, `UserAgent`) em um único migration inicial, já que nenhuma migration havia sido criada nas Etapas 1/2. Nem a Etapa 4 (link público) nem a Etapa 5 (download) **precisaram de uma nova migration** — o modelo de dados já estava completo desde a `InitialCreate`; só código de aplicação (`FilePublicLinkService`, `FileDownloadService`, endpoints) foi adicionado.
 
 ## LocalStack (S3) e PostgreSQL locais
 

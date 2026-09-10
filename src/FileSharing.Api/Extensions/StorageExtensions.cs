@@ -51,6 +51,8 @@ public static class StorageExtensions
 
         services.AddScoped<IFileStorageService, S3FileStorageService>();
         services.AddScoped<IFileUploadService, FileUploadService>();
+        services.AddScoped<IFilePublicLinkService, FilePublicLinkService>();
+        services.AddScoped<IFileDownloadService, FileDownloadService>();
 
         services.AddValidatorsFromAssemblyContaining<InitiateUploadRequestValidator>();
 

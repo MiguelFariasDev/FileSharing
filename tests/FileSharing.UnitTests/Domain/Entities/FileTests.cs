@@ -144,4 +144,58 @@ public class FileTests
 
         Assert.Equal(FileStatus.Expired, file.Status);
     }
+
+    [Fact]
+    public void AssignAccessToken_SetsTheHash_ForAnActiveNonExpiredFile()
+    {
+        var file = CreateFile();
+        var completedAt = DateTimeOffset.UtcNow;
+        file.CompleteUpload(completedAt);
+
+        file.AssignAccessToken("some-hash", completedAt);
+
+        Assert.Equal("some-hash", file.AccessTokenHash);
+    }
+
+    [Fact]
+    public void AssignAccessToken_Throws_WhenFileIsPendingUpload()
+    {
+        var file = CreateFile();
+
+        Assert.Throws<InvalidOperationException>(() => file.AssignAccessToken("some-hash", DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void AssignAccessToken_Throws_WhenFileIsExpired()
+    {
+        var file = CreateFile();
+        var completedAt = DateTimeOffset.UtcNow;
+        file.CompleteUpload(completedAt);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            file.AssignAccessToken("some-hash", file.ExpiresAt!.Value));
+    }
+
+    [Fact]
+    public void AssignAccessToken_Throws_WhenHashIsEmpty()
+    {
+        var file = CreateFile();
+        var completedAt = DateTimeOffset.UtcNow;
+        file.CompleteUpload(completedAt);
+
+        Assert.Throws<ArgumentException>(() => file.AssignAccessToken("   ", completedAt));
+    }
+
+    [Fact]
+    public void AssignAccessToken_CalledTwice_ReplacesThePreviousHash()
+    {
+        var file = CreateFile();
+        var completedAt = DateTimeOffset.UtcNow;
+        file.CompleteUpload(completedAt);
+
+        file.AssignAccessToken("first-hash", completedAt);
+        file.AssignAccessToken("second-hash", completedAt);
+
+        Assert.Equal("second-hash", file.AccessTokenHash);
+    }
 }

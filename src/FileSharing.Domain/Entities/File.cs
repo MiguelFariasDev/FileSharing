@@ -97,4 +97,24 @@ public class File
 
         Status = FileStatus.Expired;
     }
+
+    /// <summary>
+    /// Associates a freshly generated public access token (already hashed by the caller —
+    /// the plaintext token is never known to Domain) with this file. Only an Active,
+    /// not-yet-expired file may receive one; calling this again replaces any previous hash,
+    /// which invalidates the previously issued link.
+    /// </summary>
+    public void AssignAccessToken(string accessTokenHash, DateTimeOffset asOfUtc)
+    {
+        if (Status != FileStatus.Active)
+            throw new InvalidOperationException($"Cannot assign an access token to a file with status '{Status}'.");
+
+        if (IsExpired(asOfUtc))
+            throw new InvalidOperationException("Cannot assign an access token to an expired file.");
+
+        if (string.IsNullOrWhiteSpace(accessTokenHash))
+            throw new ArgumentException("AccessTokenHash is required.", nameof(accessTokenHash));
+
+        AccessTokenHash = accessTokenHash;
+    }
 }

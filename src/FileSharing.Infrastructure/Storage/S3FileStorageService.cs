@@ -48,6 +48,33 @@ public class S3FileStorageService : IFileStorageService
         return Task.FromResult(new PresignedUploadUrl(url, new DateTimeOffset(expiresAt, TimeSpan.Zero)));
     }
 
+    public Task<PresignedDownloadUrl> CreatePresignedDownloadUrlAsync(
+        string storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        var expiresAt = DateTime.UtcNow.AddSeconds(_options.DownloadUrlExpirationSeconds);
+
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _options.BucketName,
+            Key = storageKey,
+            Verb = HttpVerb.GET,
+            Expires = expiresAt
+        };
+
+        if (Uri.TryCreate(_s3Client.Config.ServiceURL, UriKind.Absolute, out var serviceUri) &&
+            serviceUri.Scheme == Uri.UriSchemeHttp)
+        {
+            request.Protocol = Protocol.HTTP;
+        }
+
+        // GetPreSignedURL is a local HMAC computation — no network call is made, so no
+        // cancellation point exists to honor cancellationToken here.
+        var url = _s3Client.GetPreSignedURL(request);
+
+        return Task.FromResult(new PresignedDownloadUrl(url, new DateTimeOffset(expiresAt, TimeSpan.Zero)));
+    }
+
     public async Task<bool> ObjectExistsAsync(string storageKey, CancellationToken cancellationToken = default) =>
         await GetObjectMetadataAsync(storageKey, cancellationToken) is not null;
 

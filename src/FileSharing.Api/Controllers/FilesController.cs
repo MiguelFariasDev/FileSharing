@@ -13,11 +13,16 @@ namespace FileSharing.Api.Controllers;
 public class FilesController : ControllerBase
 {
     private readonly IFileUploadService _fileUploadService;
+    private readonly IFilePublicLinkService _filePublicLinkService;
     private readonly IValidator<InitiateUploadRequest> _initiateUploadValidator;
 
-    public FilesController(IFileUploadService fileUploadService, IValidator<InitiateUploadRequest> initiateUploadValidator)
+    public FilesController(
+        IFileUploadService fileUploadService,
+        IFilePublicLinkService filePublicLinkService,
+        IValidator<InitiateUploadRequest> initiateUploadValidator)
     {
         _fileUploadService = fileUploadService;
+        _filePublicLinkService = filePublicLinkService;
         _initiateUploadValidator = initiateUploadValidator;
     }
 
@@ -56,5 +61,36 @@ public class FilesController : ControllerBase
         }
 
         return Ok(result.Value);
+    }
+
+    [HttpPost("{id:guid}/link")]
+    public async Task<IActionResult> GenerateLink(Guid id, CancellationToken cancellationToken)
+    {
+        if (!User.TryGetUserId(out var userId))
+            return Unauthorized();
+
+        var result = await _filePublicLinkService.GenerateLinkAsync(userId, id, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return result.FailureReason == GenerateLinkFailureReason.NotFound
+                ? NotFound(new { message = result.Error })
+                : Conflict(new { message = result.Error });
+        }
+
+        // publicUrl is derived from the incoming request's own scheme/host — never a
+        // hardcoded production domain — so it works unchanged across local, staging and prod.
+        var publicUrl = Url.Action(
+            action: nameof(PublicFilesController.GetPublicFile),
+            controller: "PublicFiles",
+            values: new { token = result.Value!.AccessToken },
+            protocol: Request.Scheme,
+            host: Request.Host.Value);
+
+        return Ok(new
+        {
+            fileId = result.Value.FileId,
+            accessToken = result.Value.AccessToken,
+            publicUrl
+        });
     }
 }

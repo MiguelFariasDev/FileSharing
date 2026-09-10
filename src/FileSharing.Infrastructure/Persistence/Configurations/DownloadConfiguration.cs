@@ -18,7 +18,7 @@ public class DownloadConfiguration : IEntityTypeConfiguration<Download>
 
         builder.Property(d => d.UserAgent)
             .IsRequired()
-            .HasMaxLength(1000);
+            .HasMaxLength(Download.MaxUserAgentLength);
 
         builder.Property(d => d.DownloadedAt)
             .IsRequired();

@@ -33,8 +33,10 @@ public class FileConfiguration : IEntityTypeConfiguration<File>
         builder.Property(f => f.CompressionType)
             .IsRequired();
 
-        // Nulo enquanto o upload está PendingUpload — só passa a existir quando a Etapa 4
-        // (link público) gerar e associar um token de acesso a um arquivo já Active.
+        // Nulo enquanto o upload está PendingUpload, e também enquanto Active sem nenhum link
+        // gerado ainda — só passa a existir quando POST /api/files/{id}/link associar um
+        // token de acesso (já hasheado; o token em texto puro nunca é persistido) a um
+        // arquivo Active e não expirado.
         builder.Property(f => f.AccessTokenHash)
             .HasMaxLength(64);
 
