@@ -58,7 +58,19 @@ ASPNETCORE_ENVIRONMENT=Development dotnet ef database update -p src/FileSharing.
 
 `ASPNETCORE_ENVIRONMENT=Development` é necessário para que a connection string de `appsettings.Development.json` seja carregada — sem ela, `AddPersistence` não configura nenhum provider (ver `docs/security.md`, "por que a API falha sem configuração").
 
-Migration existente: `InitialCreate` (Etapa 3) — cria `users`, `files` (já com todos os campos, incluindo `AccessTokenHash` e seu índice único, antecipando a Etapa 4) e `downloads` (já com todos os campos usados pela Etapa 5: `FileId`, `DownloadedAt`, `IpAddress`, `UserAgent`) em um único migration inicial, já que nenhuma migration havia sido criada nas Etapas 1/2. Nem a Etapa 4 (link público) nem a Etapa 5 (download) **precisaram de uma nova migration** — o modelo de dados já estava completo desde a `InitialCreate`; só código de aplicação (`FilePublicLinkService`, `FileDownloadService`, endpoints) foi adicionado.
+Migration existente: `InitialCreate` (Etapa 3) — cria `users`, `files` (já com todos os campos, incluindo `AccessTokenHash` e seu índice único, antecipando a Etapa 4, e um índice em `ExpiresAt` antecipando a rotina de expiração da Etapa 6) e `downloads` (já com todos os campos usados pela Etapa 5: `FileId`, `DownloadedAt`, `IpAddress`, `UserAgent`) em um único migration inicial, já que nenhuma migration havia sido criada nas Etapas 1/2. Nem a Etapa 4 (link público), nem a Etapa 5 (download), nem a Etapa 6 (Hangfire/expiração) **precisaram de uma nova migration do EF Core** — o modelo de dados da aplicação já estava completo desde a `InitialCreate`; cada uma adicionou só código de aplicação/infraestrutura (`FilePublicLinkService`, `FileDownloadService`, `ExpiredFileCleanupJob`, endpoints).
+
+## Hangfire (Etapa 6)
+
+O Hangfire (`Hangfire.PostgreSql`) usa a **mesma** instância/base `filesharing` como seu job storage — não um segundo banco, não Redis. Ao iniciar, ele cria e mantém automaticamente seu próprio schema `hangfire` (tabelas como `hangfire.job`, `hangfire.set`, `hangfire.hash`, `hangfire.server` etc.) na mesma base física, completamente separado do schema `public` usado pelo EF Core/`ApplicationDbContext`:
+
+```sql
+-- schemas na base "filesharing" depois que a Api sobe pela primeira vez com Hangfire:
+-- public    -> users, files, downloads (EF Core / ApplicationDbContext)
+-- hangfire  -> job, set, hash, server, ... (gerenciado pela própria Hangfire.PostgreSql)
+```
+
+Esse schema **não** é gerenciado pelas migrations do EF Core (`dotnet ef migrations add ...`) — a própria biblioteca Hangfire.PostgreSql instala/atualiza seu schema automaticamente na primeira vez que a aplicação sobe apontando para aquele banco. Nenhuma migration do EF Core foi criada para esta etapa: o modelo de dados da aplicação (`users`/`files`/`downloads`) não mudou.
 
 ## LocalStack (S3) e PostgreSQL locais
 

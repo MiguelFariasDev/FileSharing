@@ -1,7 +1,9 @@
 # API
 
-Esta seção documenta os endpoints implementados até a Etapa 5 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads).
-Notificações (SignalR), dashboard e expiração automática (Hangfire) serão documentados nas etapas correspondentes.
+Esta seção documenta os endpoints implementados até a Etapa 6 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática).
+Notificações (SignalR) e um Dashboard autenticado serão documentados nas etapas correspondentes.
+
+A Etapa 6 (Hangfire + limpeza automática de arquivos expirados) **não adiciona nenhum endpoint HTTP novo** — é um job recorrente em segundo plano, sem superfície de API própria, e deliberadamente sem Dashboard exposto (`/hangfire` não existe como rota nesta etapa; ver `docs/security.md`). Ver `docs/architecture.md` para o funcionamento do job e a relação entre `ExpiresAt` e a limpeza.
 
 Todas as respostas de erro de validação seguem o formato padrão do ASP.NET Core (`ValidationProblemDetails`, 400).
 

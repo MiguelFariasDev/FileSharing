@@ -10,6 +10,7 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddAuthServices(builder.Configuration);
 builder.Services.AddJwtAuthentication();
 builder.Services.AddFileStorage(builder.Configuration);
+builder.Services.AddBackgroundJobs(builder.Configuration);
 builder.Services.AddSwaggerWithJwtSupport();
 
 // Slows down brute-force guessing of public share tokens against GET /api/public/files/{token}.
@@ -44,5 +45,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// No dashboard is mapped here — see BackgroundJobsExtensions. No-ops when Hangfire storage
+// was not configured above (disabled via config, or no PostgreSQL connection string present).
+app.UseExpiredFileCleanupSchedule();
 
 app.Run();

@@ -25,8 +25,12 @@
     <PackageVersion Include="AWSSDK.S3" Version="4.0.103" />
 
     <!-- Background Jobs -->
+    <PackageVersion Include="Hangfire.Core" Version="1.8.25" />
     <PackageVersion Include="Hangfire.AspNetCore" Version="1.8.25" />
     <PackageVersion Include="Hangfire.PostgreSql" Version="1.20.0" />
+    <!-- Hangfire.Core transitively pins a vulnerable Newtonsoft.Json (GHSA-5crp-9r3c-p9vr);
+         override with a patched version centrally so every project resolves the safe one. -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
 
     <!-- Logging -->
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.1" />
