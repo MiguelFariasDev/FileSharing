@@ -1,6 +1,6 @@
 # Deployment
 
-Este documento cobre apenas o que a Etapa 6 (Hangfire + expiração/limpeza automática) introduz com relevância para execução/deploy. AWS ECS Fargate, RDS de produção e CI/CD (`.github/workflows/`) são etapas futuras — nada disso é implementado ou documentado aqui ainda.
+Este documento cobre apenas o que as Etapas 6 (Hangfire + expiração/limpeza automática) e 7 (SignalR + notificação em tempo real) introduzem com relevância para execução/deploy. AWS ECS Fargate, RDS de produção e CI/CD (`.github/workflows/`) são etapas futuras — nada disso é implementado ou documentado aqui ainda.
 
 ## Hangfire em produção
 
@@ -30,7 +30,16 @@ Igual ao padrão já estabelecido para `Jwt:SecretKey` e as credenciais AWS (ver
 2. O usuário do banco tem permissão para criar o schema `hangfire` na primeira subida (o mesmo usuário já usado pelo EF Core é suficiente em desenvolvimento; em produção, confirmar que a role tem `CREATE SCHEMA`).
 3. `ExpirationCleanup:Enabled` está `true` (ou ausente — o padrão já é `true`) nos ambientes onde a limpeza automática deve rodar.
 4. Nenhuma rota `/hangfire` foi adicionada manualmente sem um filtro de autorização.
+5. Nenhuma rota `/hubs/notifications` foi exposta sem `[Authorize]` no Hub.
 
-## Fora de escopo desta etapa
+## SignalR em produção (Etapa 7)
 
-AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`) — nenhum desses foi implementado ou alterado pela Etapa 6. Este documento será expandido quando essas etapas forem implementadas.
+- **Sem backplane nesta etapa.** O SignalR usa seu armazenamento de conexões em memória padrão — sem Redis, sem Azure SignalR Service, conforme pedido explicitamente para esta etapa.
+- **Funciona corretamente com uma única instância da Api.** Toda a garantia de isolamento por usuário (`Clients.User`) e suporte a múltiplas conexões do mesmo usuário (várias abas/dispositivos) funciona sem nenhuma configuração adicional enquanto só uma instância do processo estiver rodando.
+- **Limitação conhecida para múltiplas instâncias.** Se uma implantação futura rodar mais de uma instância da Api simultaneamente atrás de um load balancer (por exemplo, várias tasks no AWS ECS Fargate mencionado no `CLAUDE.md`), uma conexão SignalR estabelecida com a instância A não é visível pela instância B — um download processado pela instância B não conseguiria notificar em tempo real um dono cuja conexão de navegador está aberta com a instância A (a notificação simplesmente não chegaria; nada quebra, nada vaza para o usuário errado). Isso é puramente uma limitação de alcance/entrega, não de segurança: o isolamento por usuário continua correto independentemente da topologia.
+- **Solução para múltiplas instâncias: um backplane.** Redis (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`) ou o Azure SignalR Service gerenciado são as opções padrão do ecossistema ASP.NET Core para sincronizar mensagens entre instâncias. **Não implementado nesta etapa** — é uma decisão de infraestrutura de deployment/escala a ser tomada quando (e se) a Api passar a rodar com mais de uma instância simultânea, não algo que precisa existir para o funcionamento correto hoje.
+- **Sticky sessions não são necessárias com um backplane**, mas **são necessárias sem um** se o load balancer não garantir afinidade de conexão — sem backplane e sem sticky sessions, uma reconexão do cliente poderia cair em uma instância diferente da que originalmente aceitou a conexão, o que já é tratado pelo protocolo de negociação do SignalR (uma nova conexão é sempre válida), mas o cliente perderia qualquer estado em memória associado à conexão anterior. Sem estado em memória por conexão nesta implementação (o Hub não guarda nada), o impacto prático disso hoje é nulo.
+
+## Fora de escopo destas etapas
+
+AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`), backplane Redis/Azure SignalR — nenhum desses foi implementado ou alterado pelas Etapas 6/7. Este documento será expandido quando essas etapas forem implementadas.

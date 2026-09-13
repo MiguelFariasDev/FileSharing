@@ -1,9 +1,32 @@
 # API
 
-Esta seção documenta os endpoints implementados até a Etapa 6 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática).
-Notificações (SignalR) e um Dashboard autenticado serão documentados nas etapas correspondentes.
+Esta seção documenta os endpoints implementados até a Etapa 7 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real).
+Um Dashboard autenticado e a UI Blazor serão documentados em etapas futuras.
 
 A Etapa 6 (Hangfire + limpeza automática de arquivos expirados) **não adiciona nenhum endpoint HTTP novo** — é um job recorrente em segundo plano, sem superfície de API própria, e deliberadamente sem Dashboard exposto (`/hangfire` não existe como rota nesta etapa; ver `docs/security.md`). Ver `docs/architecture.md` para o funcionamento do job e a relação entre `ExpiresAt` e a limpeza.
+
+A Etapa 7 (SignalR + notificação em tempo real) adiciona um único endpoint novo, não-REST: o Hub abaixo. `GET /api/public/files/{token}/download` (Etapa 5) continua exatamente o mesmo — nenhum campo novo na requisição/resposta, nenhuma mudança de comportamento visível para o downloader.
+
+## Hub /hubs/notifications
+
+Endpoint SignalR, **não** um controller REST. Exige um JWT autenticado (mesmo token emitido por `POST /api/auth/login`) — uma tentativa de conexão sem token recebe `401` na negociação, antes mesmo de qualquer conexão ser estabelecida.
+
+- **Identidade:** `Context.UserIdentifier` é derivado do claim `sub` do JWT (nunca de algo enviado pelo cliente) — ver `docs/architecture.md`/`docs/security.md` para o porquê de um `IUserIdProvider` customizado ser necessário aqui.
+- **Transporte do token:** para clientes REST normais, o JWT continua indo no header `Authorization: Bearer <token>`. Para a conexão SignalR especificamente (necessário para WebSockets/SSE em um navegador, que não conseguem anexar esse header a um upgrade de conexão), o token também pode ser enviado como `?access_token=<token>` — **só** nesse caminho (`/hubs/notifications`); em qualquer outro endpoint esse parâmetro é ignorado e o header continua obrigatório.
+- **Evento enviado pelo servidor:** `"FileDownloaded"`, disparado quando `GET /api/public/files/{token}/download` autoriza e registra um download de um arquivo que pertence ao usuário conectado.
+
+  ```json
+  {
+    "fileId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "originalFileName": "document.pdf",
+    "downloadedAt": "2026-09-12T12:34:56.0000000+00:00"
+  }
+  ```
+
+  Nenhum outro campo é enviado — em particular, nunca o token de acesso público, o `AccessTokenHash`, a presigned URL, o `StorageKey`, ou o IP/User-Agent de quem baixou (esses últimos ficam só no histórico `GET /api/files/{id}/downloads`, quando esse endpoint existir).
+
+- **Sem métodos invocáveis pelo cliente.** O Hub só empurra eventos para o servidor conectado — não expõe nenhuma ação que o cliente possa chamar.
+- **"FileDownloaded" representa "um download foi autorizado/registrado", não "o downloader terminou de baixar o arquivo"** — a API não tem como observar o fim de uma transferência que acontece direto entre o downloader e o S3 (mesma ressalva já documentada para o registro `Download` da Etapa 5).
 
 Todas as respostas de erro de validação seguem o formato padrão do ASP.NET Core (`ValidationProblemDetails`, 400).
 

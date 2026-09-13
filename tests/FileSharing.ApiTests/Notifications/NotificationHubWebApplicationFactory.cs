@@ -1,4 +1,3 @@
-using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
@@ -9,32 +8,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 
-namespace FileSharing.ApiTests;
+namespace FileSharing.ApiTests.Notifications;
 
-public class CustomWebApplicationFactory : WebApplicationFactory<Program>
+/// <summary>
+/// A separate WebApplicationFactory from CustomWebApplicationFactory, deliberately: that one
+/// mocks IFileDownloadNotifier (to unit-test the download flow's own logic without a live
+/// SignalR connection), which is exactly what these tests need to NOT be mocked — they exercise
+/// the real SignalRFileDownloadNotifier / NotificationHub / SubClaimUserIdProvider end to end,
+/// over a real (test-server-backed) SignalR connection. Storage is still mocked, same as
+/// CustomWebApplicationFactory, since S3 isn't what this fixture is testing.
+/// </summary>
+public class NotificationHubWebApplicationFactory : WebApplicationFactory<Program>
 {
-    public const string TestJwtSecretKey = "integration-test-signing-key-with-enough-entropy-0123456789";
+    public const string TestJwtSecretKey = CustomWebApplicationFactory.TestJwtSecretKey;
 
-    /// <summary>
-    /// Storage is mocked instead of hitting a real S3/LocalStack endpoint from these
-    /// HTTP-pipeline tests — the S3-specific implementation is exercised separately
-    /// against LocalStack in FileSharing.IntegrationTests. Reconfigure per test with
-    /// <c>FileStorageServiceMock.Setup(...)</c>; it is a singleton so state persists
-    /// across requests within a test.
-    /// </summary>
     public Mock<IFileStorageService> FileStorageServiceMock { get; } = new();
 
-    /// <summary>
-    /// Real-time notification delivery (Phase 7) is mocked here for the same reason storage
-    /// is: these HTTP-pipeline tests exercise the download flow's own logic (does it call the
-    /// notifier with the right owner/payload?), not SignalR's transport itself — a real
-    /// end-to-end SignalR connection is exercised separately (see
-    /// Notifications/NotificationHubTests.cs, which intentionally does NOT use this factory so
-    /// the real SignalRFileDownloadNotifier stays wired).
-    /// </summary>
-    public Mock<IFileDownloadNotifier> FileDownloadNotifierMock { get; } = new();
-
-    public CustomWebApplicationFactory()
+    public NotificationHubWebApplicationFactory()
     {
         FileStorageServiceMock
             .Setup(s => s.CreatePresignedUploadUrlAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -43,6 +33,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         FileStorageServiceMock
             .Setup(s => s.GetObjectMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((StorageObjectMetadata?)null);
+
+        FileStorageServiceMock
+            .Setup(s => s.ObjectExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        FileStorageServiceMock
+            .Setup(s => s.CreatePresignedDownloadUrlAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PresignedDownloadUrl("https://mock-s3.test/download", DateTimeOffset.UtcNow.AddMinutes(5)));
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -60,7 +58,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             });
         });
 
-        var databaseName = $"FileSharingTests-{Guid.NewGuid()}";
+        var databaseName = $"FileSharingSignalRTests-{Guid.NewGuid()}";
 
         builder.ConfigureServices(services =>
         {
@@ -70,17 +68,14 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
             if (descriptor is not null)
                 services.Remove(descriptor);
 
-            // O lifetime padrão de DbContextOptions<T> é Scoped, então esta ação é reexecutada a
-            // cada novo scope (cada requisição HTTP) — o nome do banco precisa ser fixo fora da
-            // lambda, senão cada requisição acabaria enxergando um banco InMemory diferente.
             services.AddDbContext<ApplicationDbContext>(options =>
                 options.UseInMemoryDatabase(databaseName));
 
             services.RemoveAll<IFileStorageService>();
             services.AddSingleton(FileStorageServiceMock.Object);
 
-            services.RemoveAll<IFileDownloadNotifier>();
-            services.AddSingleton(FileDownloadNotifierMock.Object);
+            // IFileDownloadNotifier is intentionally left as the real SignalRFileDownloadNotifier
+            // registered by Program.cs — that is the whole point of this fixture.
         });
     }
 }

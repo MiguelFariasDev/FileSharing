@@ -1,7 +1,7 @@
 # Arquitetura
 
-Documenta as decisões arquiteturais até a Etapa 6 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática).
-Dashboard (autenticado), SignalR e notificações pertencem a etapas futuras.
+Documenta as decisões arquiteturais até a Etapa 7 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática, SignalR + notificação em tempo real de downloads).
+Dashboard (autenticado) e a UI/HubConnection do lado do cliente Blazor pertencem a uma etapa futura.
 
 ## Camadas (Clean Architecture)
 
@@ -16,9 +16,9 @@ Api
 ```
 
 - **Domain** (`FileSharing.Domain`): entidades (`User`, `File`, `Download`) e regras de negócio puras. Zero dependência de EF Core, ASP.NET Core ou AWS SDK.
-- **Application** (`FileSharing.Application`): DTOs, validators (FluentValidation), serviços de caso de uso (`AuthService`, `FileUploadService`, `FilePublicLinkService`, `FileDownloadService`) e as abstrações que Infrastructure implementa (`IApplicationDbContext`, `IPasswordHasher`, `IJwtTokenGenerator`, `IFileStorageService`). Não conhece `AmazonS3Client`, `Npgsql` ou qualquer tipo do `Microsoft.AspNetCore.*` — inclusive `Microsoft.AspNetCore.RateLimiting`, que só é referenciado na Api. `FileDownloadService` recebe `ipAddress`/`userAgent` já como `string` simples: toda a extração desses valores de `HttpContext`/headers acontece na Api (`PublicFilesController`), nunca na Application.
-- **Infrastructure** (`FileSharing.Infrastructure`): implementações concretas — `ApplicationDbContext` (EF Core/PostgreSQL), `PasswordHasher`/`JwtTokenGenerator` (Identity/JWT), `S3FileStorageService` (AWSSDK.S3, agora também com `CreatePresignedDownloadUrlAsync`), e agora `BackgroundJobs/ExpiredFileCleanupJob` (Hangfire job implementation, Etapa 6).
-- **Api** (`FileSharing.Api`): controllers finos, configuração de DI (pasta `Extensions/`), pipeline HTTP, Swagger, rate limiting (`Program.cs`).
+- **Application** (`FileSharing.Application`): DTOs, validators (FluentValidation), serviços de caso de uso (`AuthService`, `FileUploadService`, `FilePublicLinkService`, `FileDownloadService`) e as abstrações que Infrastructure/Api implementam (`IApplicationDbContext`, `IPasswordHasher`, `IJwtTokenGenerator`, `IFileStorageService`, e agora `IFileDownloadNotifier` — Etapa 7). Não conhece `AmazonS3Client`, `Npgsql` ou qualquer tipo do `Microsoft.AspNetCore.*` — inclusive `Microsoft.AspNetCore.RateLimiting` e `Microsoft.AspNetCore.SignalR`, que só são referenciados na Api. `FileDownloadService` recebe `ipAddress`/`userAgent` já como `string` simples: toda a extração desses valores de `HttpContext`/headers acontece na Api (`PublicFilesController`), nunca na Application. O mesmo vale para a notificação: `IFileDownloadNotifier.NotifyDownloadAsync(ownerUserId, notification, ct)` recebe um `Guid` e um DTO simples — a Application nunca vê `IHubContext`, `Hub` ou qualquer tipo do SignalR.
+- **Infrastructure** (`FileSharing.Infrastructure`): implementações concretas — `ApplicationDbContext` (EF Core/PostgreSQL), `PasswordHasher`/`JwtTokenGenerator` (Identity/JWT), `S3FileStorageService` (AWSSDK.S3, agora também com `CreatePresignedDownloadUrlAsync`), e `BackgroundJobs/ExpiredFileCleanupJob` (Hangfire job implementation, Etapa 6).
+- **Api** (`FileSharing.Api`): controllers finos, configuração de DI (pasta `Extensions/`), pipeline HTTP, Swagger, rate limiting, e agora `Hubs/` (`NotificationHub`, `SignalRFileDownloadNotifier`, `SubClaimUserIdProvider` — Etapa 7) (`Program.cs`).
 - **Mobile** (`FileSharing.Mobile`): cliente .NET MAUI (Android). Conversa com a Api via HTTP/JSON; nunca referencia o AWS SDK nem possui credenciais AWS.
 
 Sem MediatR: cada caso de uso é um serviço de Application chamado diretamente pelo controller (`IAuthService`, `IFileUploadService`, `IFilePublicLinkService`, `IFileDownloadService`), decisão tomada na Etapa 2 e mantida nas etapas seguintes por consistência.
@@ -94,6 +94,7 @@ Public client (qualquer um com o link)          Api                             
  |                                                |<----------------- existe? --------|
  |                                                |--- registra Download (persiste) ->|
  |                                                |--- CreatePresignedDownloadUrlAsync (GET, curta) |
+ |                                                |--- notifica dono via SignalR (best-effort, Etapa 7) |
  |<---- 200 { downloadUrl, expiresAt } ou 404 ---|                                   |
  |                                                                                    |
  |-------------------------- GET downloadUrl (bytes do arquivo) ------------------->|
@@ -175,6 +176,45 @@ Pontos importantes:
 - **`File` expirado sem `StorageKey`: cenário inexistente pelo modelo atual, verificado, não inventado.** `File.StorageKey` é obrigatório e validado no construtor (`ArgumentException` se nulo/vazio) e nunca é limpo depois — não existe caminho, nem hipotético, para um `File` (em qualquer `Status`) ter `StorageKey` nulo/vazio. Por isso o job não tem (nem precisa de) um branch especial para esse caso.
 - **Ambiente de teste sem Hangfire real.** `AddBackgroundJobs`/`UseExpiredFileCleanupSchedule` só registram storage/server/agendamento quando há uma connection string `Postgres` configurada **e** `ExpirationCleanup:Enabled = true`; `FileSharing.ApiTests` roda em ambiente `"Testing"` com banco InMemory e nunca configura uma connection string real, então o guard já pula toda a parte de Hangfire sem precisar de nenhuma mudança em `CustomWebApplicationFactory` — `IExpiredFileCleanupJob` continua registrado no container (então é resolvível), só nunca agendado. `FileSharing.UnitTests`/`FileSharing.IntegrationTests` nunca passam pelo Hangfire de forma alguma — instanciam `ExpiredFileCleanupJob` diretamente, como uma classe simples (mesmo padrão de `FileDownloadServiceTests`/`FileDownloadIntegrationTests`).
 
+## SignalR e notificação em tempo real de downloads (Etapa 7)
+
+```
+Owner (autenticado)                    Api                              Downloader (link público)
+ |                                      |                                       |
+ |-- HubConnection (JWT) ------------->|                                       |
+ |   /hubs/notifications                |                                       |
+ |   [Authorize] — rejeita sem JWT      |                                       |
+ |<-- conectado ------------------------|                                       |
+ |                                      |                                       |
+ |                                      |<-- GET /api/public/files/{token}/download --|
+ |                                      |    (fluxo da Etapa 5, inalterado:     |
+ |                                      |     valida token/Status/ExpiresAt/S3, |
+ |                                      |     registra Download, gera URL)      |
+ |                                      |                                       |
+ |                                      |-- IFileDownloadNotifier.NotifyDownloadAsync(ownerUserId, ...) |
+ |                                      |     (só depois do Download já persistido e da URL já emitida) |
+ |                                      |-- Clients.User(ownerUserId).SendAsync("FileDownloaded", ...) |
+ |<-- "FileDownloaded" { fileId,        |                                       |
+ |     originalFileName, downloadedAt } |                                       |
+ |                                      |-- 200 { downloadUrl, expiresAt } ou 404 (best-effort acima não afeta isto) --> |
+```
+
+Pontos importantes:
+
+- **O fluxo de download da Etapa 5 não foi alterado** — mesma ordem de validação (token → `Status` → `ExpiresAt` → objeto no S3), mesmo `DownloadFileOutcome` genérico para toda falha, mesmo registro de `Download`. Esta etapa apenas adiciona um passo **depois** de tudo isso já ter tido sucesso: notificar o dono. Nenhum endpoint novo, nenhuma mudança de contrato em `GET /api/public/files/{token}/download`.
+- **`IFileDownloadNotifier` é a única abstração nova em Application** (`FileSharing.Application.Abstractions.Notifications`), no mesmo espírito de `IFileStorageService`/`IApplicationDbContext` — a Application conhece só a interface (`NotifyDownloadAsync(Guid ownerUserId, FileDownloadedNotification, CancellationToken)`), nunca `Hub`, `IHubContext` ou qualquer tipo `Microsoft.AspNetCore.SignalR.*`.
+- **A implementação concreta (`SignalRFileDownloadNotifier`) vive em `FileSharing.Api/Hubs`, não em Infrastructure** — ela depende de `IHubContext<NotificationHub>`, e `NotificationHub` precisa estar na Api para ser mapeado por `Program.cs` (`app.MapHub<NotificationHub>(...)`). Mesma categoria de decisão já documentada no `CLAUDE.md` ("Api ... SignalR hub registration").
+- **Identidade da conexão vem só do claim `sub` do JWT, nunca de algo que o cliente envie.** `SubClaimUserIdProvider` (`IUserIdProvider`) é necessário porque o JWT desta API usa `MapInboundClaims = false` (Etapa 2) — os claims mantêm o nome original ("sub"), não são remapeados para `ClaimTypes.NameIdentifier`, que é o que o `IUserIdProvider` padrão do SignalR usa. Sem esse provider customizado, `Context.UserIdentifier` seria sempre `null` e `Clients.User(...)` não alcançaria ninguém. O provider reaproveita `ClaimsPrincipalExtensions.TryGetUserId` — a mesma lógica de extração de identidade já usada por todo endpoint REST — em vez de duplicá-la.
+- **`Clients.User(ownerUserId.ToString())`, nunca `Clients.All`/`Clients.AllExcept`/grupos escolhidos pelo cliente.** O isolamento entre usuários não é uma checagem adicional em algum lugar — é uma propriedade estrutural do mecanismo escolhido: o SignalR só entrega a quem tem aquele `UserIdentifier` específico. `File B` sendo baixado nunca aparece para o dono de `File A`, e vice-versa (testado ponta a ponta com duas conexões reais — ver `tests/FileSharing.ApiTests/Notifications/NotificationHubTests.cs`).
+- **Múltiplas conexões do mesmo usuário são responsabilidade do próprio SignalR** — `Clients.User(id)` já entrega a todas as conexões daquele `UserIdentifier` (várias abas, dispositivos etc.); nenhum `Dictionary<UserId, ConnectionId>` próprio foi criado.
+- **A notificação é best-effort, por design — este é o requisito mais crítico desta etapa.** `FileDownloadService.DownloadAsync` chama `IFileDownloadNotifier.NotifyDownloadAsync` só depois do `Download` já persistido e da presigned URL já emitida, envolvendo a chamada em um `try/catch` que descarta qualquer exceção — uma falha do SignalR (Hub indisponível, erro de transporte, timeout) nunca reverte o `Download`, nunca invalida a URL já gerada, e nunca faz o endpoint público responder algo diferente de `200`. `SignalRFileDownloadNotifier` também captura e loga suas próprias falhas internamente (`LogWarning`) — o `try/catch` em `FileDownloadService` é um segundo cinto de segurança, não o único.
+- **Download inválido/expirado nunca notifica ninguém.** A chamada ao notifier só existe depois de todas as validações da Etapa 5 já terem passado — um token desconhecido, expirado, ou um objeto ausente no S3 retornam o mesmo `404` de sempre, sem nunca alcançar o notifier (testado explicitamente).
+- **Payload mínimo, deliberadamente.** `FileDownloadedNotification { FileId, OriginalFileName, DownloadedAt }` — nunca `AccessToken`, `AccessTokenHash`, presigned URL, `StorageKey`, IP ou User-Agent do downloader (esses dois últimos continuam só no histórico `Download`, Etapa 5, e nunca saem por SignalR). Um teste de regressão (`FileDownloadedNotification_ExposesOnlyFileIdOriginalFileNameAndDownloadedAt`) garante que o payload nunca seja ampliado silenciosamente.
+- **Hub sem lógica de negócio.** `NotificationHub` não define nenhum método invocável pelo cliente, não consulta o banco, não sabe o que é um `File` — é só um ponto de conexão autenticado; toda a decisão de "quem notificar, com o quê" acontece em `FileDownloadService`/`SignalRFileDownloadNotifier`.
+- **JWT sobre query string, mas só para o Hub.** Um navegador não consegue anexar um cabeçalho `Authorization` a um upgrade de WebSocket (nem a uma requisição SSE) — por isso o cliente JS do SignalR envia o token como `?access_token=...`. `AuthExtensions.AddJwtAuthentication` ganhou um `JwtBearerEvents.OnMessageReceived` que só aceita esse parâmetro quando o caminho começa com `/hubs/notifications` (`HubEndpoints.Notifications`); fora dali, o comportamento é exatamente o mesmo de antes desta etapa — o REST continua exigindo o header `Authorization`, e um token na query string de um endpoint REST é ignorado (verificado manualmente: `GET /api/auth/me?access_token=...` sem o header continua `401`).
+- **Rate limiting inalterado.** `PublicFilesController` continua com a mesma política `public-files` da Etapa 4/5; o Hub não tem, e não precisa de, uma política de rate limit própria — ele não é uma superfície de adivinhação de token como o link público.
+- **Escalabilidade: funciona em uma única instância; múltiplas instâncias em produção exigirão um backplane.** O SignalR aqui usa o armazenamento de conexões em memória padrão (nenhum backplane Redis/Azure SignalR foi adicionado nesta etapa, conforme pedido). Isso significa que **hoje**, com uma única instância da Api rodando, tudo funciona corretamente — inclusive múltiplas conexões do mesmo usuário. Se uma implantação futura rodar **múltiplas instâncias** da Api atrás de um load balancer (ex.: AWS ECS Fargate com várias tasks), uma conexão SignalR estabelecida com a instância A não é visível pela instância B — um download processado pela instância B não conseguiria notificar um dono cuja conexão está na instância A. Resolver isso exigirá um backplane (ex.: Redis, ou Azure SignalR Service) — uma decisão de infraestrutura de deployment/escala, não uma mudança na segurança do fluxo atual (o isolamento por `Clients.User` continua correto independentemente do backplane escolhido). Ver também `docs/deployment.md`.
+
 ## Pastas → ZIP
 
 Uma pasta é sempre representada por **um único** `File` (`IsFolder = true`, `CompressionType = Zip`), nunca por múltiplos registros — um `File` por arquivo dentro da pasta destruiria a noção de "uma pasta compartilhada".
@@ -220,9 +260,9 @@ src/
     Entities/{User,File,Download}.cs
     Enums/{FileStatus,CompressionType}.cs
   FileSharing.Application/
-    Abstractions/{Persistence,Security,Storage}/
+    Abstractions/{Persistence,Security,Storage,Notifications}/
     Common/{Result,FileTypePolicy,RandomTokenGenerator,AccessTokenHasher}.cs
-    DTOs/{Auth,Files}/
+    DTOs/{Auth,Files,Notifications}/
     Validators/{Auth,Files}/
     Services/Auth/AuthService.cs
     Services/Files/{FileUploadService,FilePublicLinkService,FileDownloadService}.cs
@@ -230,9 +270,11 @@ src/
     Persistence/{ApplicationDbContext,Configurations,Migrations}/
     Identity/{PasswordHasher,JwtTokenGenerator}.cs
     Storage/S3FileStorageService.cs
+    BackgroundJobs/{ExpiredFileCleanupJob,ExpirationCleanupOptions}.cs
   FileSharing.Api/
     Controllers/{AuthController,FilesController,PublicFilesController}.cs
-    Extensions/{Persistence,Auth,Storage,Swagger,ValidationResult,ClaimsPrincipal}Extensions.cs
+    Hubs/{NotificationHub,SubClaimUserIdProvider,SignalRFileDownloadNotifier,HubEndpoints}.cs
+    Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal}Extensions.cs
     RateLimiterPolicyNames.cs
   FileSharing.Mobile/
     Models/UploadableItem.cs

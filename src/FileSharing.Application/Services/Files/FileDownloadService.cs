@@ -1,7 +1,9 @@
+using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
 using FileSharing.Application.DTOs.Files;
+using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,11 +13,16 @@ public class FileDownloadService : IFileDownloadService
 {
     private readonly IApplicationDbContext _dbContext;
     private readonly IFileStorageService _fileStorageService;
+    private readonly IFileDownloadNotifier _fileDownloadNotifier;
 
-    public FileDownloadService(IApplicationDbContext dbContext, IFileStorageService fileStorageService)
+    public FileDownloadService(
+        IApplicationDbContext dbContext,
+        IFileStorageService fileStorageService,
+        IFileDownloadNotifier fileDownloadNotifier)
     {
         _dbContext = dbContext;
         _fileStorageService = fileStorageService;
+        _fileDownloadNotifier = fileDownloadNotifier;
     }
 
     public async Task<DownloadFileOutcome> DownloadAsync(
@@ -55,6 +62,25 @@ public class FileDownloadService : IFileDownloadService
         // network call (see S3FileStorageService), so it cannot itself fail — persisting the
         // record first guarantees a successful response is never returned without one.
         var presigned = await _fileStorageService.CreatePresignedDownloadUrlAsync(file.StorageKey, cancellationToken);
+
+        // Best-effort, after everything the downloader needs has already succeeded: a
+        // SignalR outage (or any other notifier failure) must never turn an already-persisted
+        // Download + already-issued presigned URL into a failed response. The notifier
+        // implementation is expected to handle/log its own failures (see
+        // IFileDownloadNotifier), but this catch is a deliberate second safety net in case a
+        // future/alternate implementation doesn't honor that — this exact guarantee is the
+        // single most important requirement of this integration.
+        try
+        {
+            await _fileDownloadNotifier.NotifyDownloadAsync(
+                file.UserId,
+                new FileDownloadedNotification(file.Id, file.OriginalFileName, download.DownloadedAt),
+                cancellationToken);
+        }
+        catch
+        {
+            // Swallowed deliberately — see comment above.
+        }
 
         return DownloadFileOutcome.Success(new DownloadUrlResponse(presigned.Url, presigned.ExpiresAt));
     }

@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
 using Amazon;
 using Amazon.S3;
+using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Entities;
 using FileSharing.Infrastructure.Persistence;
@@ -12,6 +14,19 @@ using CompressionType = FileSharing.Domain.Enums.CompressionType;
 using File = FileSharing.Domain.Entities.File;
 
 namespace FileSharing.IntegrationTests.Files;
+
+/// <summary>
+/// No-op stand-in for IFileDownloadNotifier — this file exercises the download/S3/Postgres
+/// flow itself (Phase 5); real-time notification delivery (Phase 7) is covered separately by
+/// FileSharing.UnitTests (contract-level, mocked) and FileSharing.ApiTests (a real SignalR
+/// connection end-to-end). Not a Moq mock: this project has no Moq dependency and doesn't need
+/// one just for this.
+/// </summary>
+file sealed class NoOpFileDownloadNotifier : IFileDownloadNotifier
+{
+    public Task NotifyDownloadAsync(Guid ownerUserId, FileDownloadedNotification notification, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+}
 
 /// <summary>
 /// Exercises the Phase 5 public download flow (token -> File lookup -> storage check ->
@@ -86,7 +101,7 @@ public class FileDownloadIntegrationTests : IAsyncLifetime
         _dbContext = new ApplicationDbContext(dbOptions);
 
         _linkService = new FilePublicLinkService(_dbContext);
-        _downloadService = new FileDownloadService(_dbContext, _storageService);
+        _downloadService = new FileDownloadService(_dbContext, _storageService, new NoOpFileDownloadNotifier());
     }
 
     public async Task InitializeAsync()

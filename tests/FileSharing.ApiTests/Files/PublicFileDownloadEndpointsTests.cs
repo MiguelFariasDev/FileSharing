@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.DTOs.Auth;
 using FileSharing.Application.DTOs.Files;
+using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -94,6 +96,13 @@ public class PublicFileDownloadEndpointsTests : IClassFixture<CustomWebApplicati
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         return await dbContext.Downloads.Where(d => d.FileId == fileId).ToListAsync();
+    }
+
+    private async Task<Guid> GetOwnerUserIdAsync(Guid fileId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return (await dbContext.Files.SingleAsync(f => f.Id == fileId)).UserId;
     }
 
     [Fact]
@@ -302,5 +311,78 @@ public class PublicFileDownloadEndpointsTests : IClassFixture<CustomWebApplicati
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // --- Fase 7: notificação de download via IFileDownloadNotifier ---
+
+    [Fact]
+    public async Task DownloadPublicFile_ValidDownload_NotifiesTheOwner()
+    {
+        var ownerToken = await RegisterAndLoginAsync();
+        var (fileId, accessToken) = await CreatePublicLinkAsync(ownerToken);
+        var ownerUserId = await GetOwnerUserIdAsync(fileId);
+        SetupObjectExists();
+        SetupPresignedDownloadUrl();
+
+        var response = await _client.GetAsync($"/api/public/files/{accessToken}/download");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        _factory.FileDownloadNotifierMock.Verify(
+            n => n.NotifyDownloadAsync(ownerUserId, It.Is<FileDownloadedNotification>(p => p.FileId == fileId), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task DownloadPublicFile_WithExpiredFilesToken_NeverNotifiesTheOwner()
+    {
+        var ownerToken = await RegisterAndLoginAsync();
+        var (fileId, accessToken) = await CreatePublicLinkAsync(ownerToken);
+        var ownerUserId = await GetOwnerUserIdAsync(fileId);
+        await ExpireFileWithTokenAsync(accessToken);
+        SetupObjectExists();
+
+        var response = await _client.GetAsync($"/api/public/files/{accessToken}/download");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        _factory.FileDownloadNotifierMock.Verify(
+            n => n.NotifyDownloadAsync(ownerUserId, It.Is<FileDownloadedNotification>(p => p.FileId == fileId), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadPublicFile_WithUnknownToken_NeverCallsTheNotifier()
+    {
+        // FileDownloadNotifierMock is shared (IClassFixture) across every test in this class,
+        // so a broad It.IsAny<Guid>() "never called" assertion must start from a clean slate —
+        // otherwise it would fail on invocations legitimately made by earlier, unrelated tests.
+        _factory.FileDownloadNotifierMock.Invocations.Clear();
+
+        var response = await _client.GetAsync("/api/public/files/completely-made-up-token-for-notifier-test/download");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        _factory.FileDownloadNotifierMock.Verify(
+            n => n.NotifyDownloadAsync(It.IsAny<Guid>(), It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadPublicFile_StillSucceeds_WhenTheNotifierIsUnavailable()
+    {
+        var ownerToken = await RegisterAndLoginAsync();
+        var (_, accessToken) = await CreatePublicLinkAsync(ownerToken);
+        SetupObjectExists();
+        SetupPresignedDownloadUrl();
+        _factory.FileDownloadNotifierMock
+            .Setup(n => n.NotifyDownloadAsync(It.IsAny<Guid>(), It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("simulated SignalR outage"));
+
+        var response = await _client.GetAsync($"/api/public/files/{accessToken}/download");
+
+        // The whole point of Phase 7's critical requirement: a notifier failure must never
+        // turn an already-authorized download into an error response.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<DownloadUrlResponse>();
+        Assert.NotNull(body);
+        Assert.False(string.IsNullOrWhiteSpace(body!.DownloadUrl));
     }
 }
