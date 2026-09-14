@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plain net10.0 (never net10.0-android) on purpose: this is the platform-agnostic half of
+    FileSharing.Mobile — ViewModels, the API client, auth session, upload orchestration, SignalR
+    client — none of which touch a MAUI/Android API directly (file/folder pickers and secure
+    storage are injected as interfaces; their concrete Android implementations live in
+    FileSharing.Mobile itself). Kept as a genuinely plain library specifically so
+    tests/FileSharing.Mobile.Tests (also plain net10.0) can reference it and actually run via
+    `dotnet test` on a normal machine — a net10.0 project cannot reference a net10.0-android
+    project at all, and net10.0-android test assemblies cannot execute without an attached
+    Android emulator/device, which this environment does not have.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FileSharing.Application\FileSharing.Application.csproj" />
+  </ItemGroup>
+
+</Project>

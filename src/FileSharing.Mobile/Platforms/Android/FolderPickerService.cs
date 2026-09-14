@@ -2,8 +2,8 @@ using System.IO.Compression;
 using Android.App;
 using Android.Content;
 using Android.Provider;
-using FileSharing.Mobile.Models;
-using FileSharing.Mobile.Services.Upload;
+using FileSharing.Mobile.Core.Models;
+using FileSharing.Mobile.Core.Services.Upload;
 using AndroidUri = Android.Net.Uri;
 
 namespace FileSharing.Mobile.Platforms.Android;

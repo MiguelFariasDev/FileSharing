@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             x:Class="FileSharing.Mobile.Components.FileCard"
+             x:Name="Root">
+
+    <!-- Fase 13 §12: icon by type, name, size, status, remaining time, and a menu button — never
+         just a bare technical list row. Bound entirely off FileItemViewModel (Fase 13 Core), so
+         the same computed labels (RemainingLabel, StatusLabel, TypeLabel...) back both this card
+         and the bottom sheet it opens. -->
+    <components:GlassCard>
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14" x:DataType="viewmodels:FileItemViewModel" BindingContext="{Binding File, Source={x:Reference Root}}">
+
+            <Border Grid.Column="0" WidthRequest="44" HeightRequest="44" StrokeShape="RoundRectangle 14"
+                    BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent" VerticalOptions="Center">
+                <Label Text="{Binding IconKey, Converter={StaticResource IconKeyToEmojiConverter}}"
+                       FontSize="20"
+                       HorizontalOptions="Center" VerticalOptions="Center"
+                       SemanticProperties.Description="{Binding TypeLabel}" />
+            </Border>
+
+            <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                <Label Text="{Binding OriginalFileName}" FontFamily="OpenSansSemibold" FontSize="16"
+                       LineBreakMode="TailTruncation" TextColor="{StaticResource Gray900}" />
+                <Label FontSize="13" TextColor="{StaticResource Gray500}">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="{Binding TypeLabel}" />
+                            <Span Text=" · " />
+                            <Span Text="{Binding FormattedSize}" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <HorizontalStackLayout Spacing="10">
+                    <components:StatusBadge Text="{Binding StatusLabel}"
+                                             Kind="{Binding StatusLabel, Converter={StaticResource StatusLabelToKindConverter}}" />
+                    <Label Text="{Binding RemainingLabel}" Style="{StaticResource Caption}" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+            </VerticalStackLayout>
+
+            <Button Grid.Column="2" Text="&#8942;" FontSize="20" WidthRequest="40" HeightRequest="40" Padding="0"
+                    BackgroundColor="Transparent" TextColor="{StaticResource Gray500}" Shadow="{x:Null}"
+                    VerticalOptions="Start"
+                    SemanticProperties.Description="Mais ações"
+                    Command="{Binding MenuCommand, Source={x:Reference Root}}"
+                    CommandParameter="{Binding .}" />
+
+        </Grid>
+    </components:GlassCard>
+
+</ContentView>

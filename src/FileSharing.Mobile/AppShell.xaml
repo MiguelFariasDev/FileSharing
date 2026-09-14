@@ -3,12 +3,24 @@
     x:Class="FileSharing.Mobile.AppShell"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-    xmlns:local="clr-namespace:FileSharing.Mobile"
-    Title="FileSharing.Mobile">
+    xmlns:views="clr-namespace:FileSharing.Mobile.Views"
+    Shell.FlyoutBehavior="Disabled"
+    Shell.NavBarIsVisible="False"
+    Title="FileSharing">
+
+    <!-- Login/Register/Home/Upload/FileDetails/History form one linear flow, never a
+         flyout/tab bar — Shell.NavBarIsVisible is off everywhere; each page draws its own header
+         so it can stay consistent with the glass/blue visual language instead of the platform
+         chrome. Register/Upload/FileDetails/History are reached via Routing.RegisterRoute
+         (AppShell.xaml.cs), not declared here, since they are pushed/relative routes rather than
+         top-level shell items. -->
 
     <ShellContent
-        Title="Home"
-        ContentTemplate="{DataTemplate local:MainPage}"
-        Route="MainPage" />
+        Route="login"
+        ContentTemplate="{DataTemplate views:LoginPage}" />
+
+    <ShellContent
+        Route="home"
+        ContentTemplate="{DataTemplate views:HomePage}" />
 
 </Shell>

@@ -49,10 +49,10 @@
 
 	<ItemGroup>
 		<!-- App Icon -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#2563EB" />
 
 		<!-- Splash Screen -->
-		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#2563EB" BaseSize="128,128" />
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
@@ -72,7 +72,17 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <!-- FileSharing.Mobile.Core: ViewModels, the API client, auth session, upload
+	       orchestration, SignalR client — see that project's own comment for why this split
+	       exists. FileSharing.Application: kept as a direct reference too (not just transitive
+	       through Core) so XAML source generation in this project can resolve its DTO types
+	       for x:DataType bindings without relying on transitive assembly resolution. -->
 	  <ProjectReference Include="..\FileSharing.Application\FileSharing.Application.csproj" />
+	  <ProjectReference Include="..\FileSharing.Mobile.Core\FileSharing.Mobile.Core.csproj" />
 	</ItemGroup>
+
+	<!-- Resources\Raw\appsettings.json is already covered by the wildcard MauiAsset include
+	     above (LogicalName "appsettings.json", since RecursiveDir is empty at that depth) — see
+	     Resources/Raw/appsettings.json for the actual API/Hub URL configuration. -->
 
 </Project>

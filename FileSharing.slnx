@@ -5,6 +5,7 @@
     <Project Path="src/FileSharing.Domain/FileSharing.Domain.csproj" />
     <Project Path="src/FileSharing.Infrastructure/FileSharing.Infrastructure.csproj" />
     <Project Path="src/FileSharing.Mobile/FileSharing.Mobile.csproj" />
+    <Project Path="src/FileSharing.Mobile.Core/FileSharing.Mobile.Core.csproj" />
     <Project Path="src/FileSharing.Web/FileSharing.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -12,5 +13,6 @@
     <Project Path="tests/FileSharing.IntegrationTests/FileSharing.IntegrationTests.csproj" />
     <Project Path="tests/FileSharing.UnitTests/FileSharing.UnitTests.csproj" />
     <Project Path="tests/FileSharing.Web.Tests/FileSharing.Web.Tests.csproj" />
+    <Project Path="tests/FileSharing.Mobile.Tests/FileSharing.Mobile.Tests.csproj" />
   </Folder>
 </Solution>

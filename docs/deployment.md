@@ -56,6 +56,10 @@ Nenhum backend externo (CloudWatch, X-Ray, Grafana) foi configurado nesta etapa 
 - **Traces → AWS X-Ray**: o ASP.NET Core já emite `Activity`/`DiagnosticSource` para cada requisição automaticamente (nenhum código deste projeto) — um `ActivityListener`/instrumentação X-Ray se conectaria a isso do mesmo jeito que se conectaria a qualquer app ASP.NET Core.
 - **Health checks → ALB/ECS**: `/health/live` e `/health/ready` já existem no formato que um Target Group de Application Load Balancer ou um `healthCheck` de Task Definition do ECS espera (200 = saudável, texto simples).
 
+## Mobile (Etapa 13)
+
+Documentação completa em `docs/mobile.md`. Não há infraestrutura própria a implantar para o Mobile — é um APK Android que só precisa saber a URL da Api/Hub (`src/FileSharing.Mobile/Resources/Raw/appsettings.json`, um arquivo, dois valores, nenhum segredo). Trocar de ambiente (emulador → dispositivo físico → produção) é editar esse arquivo e recompilar; nenhuma outra configuração de infraestrutura é necessária no lado do Mobile.
+
 ## Fora de escopo destas etapas
 
-AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`), backplane Redis/Azure SignalR, backend externo de observabilidade (CloudWatch/X-Ray/Grafana/Datadog definitivos) — nenhum desses foi implementado ou alterado até a Etapa 12. Este documento será expandido quando essas etapas forem implementadas.
+AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`), backplane Redis/Azure SignalR, backend externo de observabilidade (CloudWatch/X-Ray/Grafana/Datadog definitivos) — nenhum desses foi implementado ou alterado até a Etapa 13. Este documento será expandido quando essas etapas forem implementadas.

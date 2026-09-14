@@ -2,6 +2,7 @@
 <Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:FileSharing.Mobile"
+             xmlns:converters="clr-namespace:FileSharing.Mobile.Converters"
              x:Class="FileSharing.Mobile.App">
     <Application.Resources>
         <ResourceDictionary>
@@ -9,6 +10,11 @@
                 <ResourceDictionary Source="Resources/Styles/Colors.xaml" />
                 <ResourceDictionary Source="Resources/Styles/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <converters:IconKeyToEmojiConverter x:Key="IconKeyToEmojiConverter" />
+            <converters:StatusLabelToKindConverter x:Key="StatusLabelToKindConverter" />
+            <converters:StringToBoolConverter x:Key="StringToBoolConverter" />
+            <converters:InvertedBoolConverter x:Key="InvertedBoolConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

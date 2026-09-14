@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             x:Class="FileSharing.Mobile.Views.LoginPage"
+             x:DataType="viewmodels:LoginViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <ScrollView>
+        <Grid Padding="24" RowDefinitions="*,Auto,*" MinimumHeightRequest="600">
+
+            <VerticalStackLayout Grid.Row="1" Spacing="28">
+
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="FileSharing" Style="{StaticResource Headline}" TextColor="{StaticResource Primary}" />
+                    <Label Text="Compartilhamento seguro e temporário de arquivos." Style="{StaticResource Caption}" />
+                </VerticalStackLayout>
+
+                <components:GlassCard>
+                    <VerticalStackLayout Spacing="16">
+
+                        <VerticalStackLayout Spacing="6">
+                            <Label Text="Email" Style="{StaticResource Caption}" />
+                            <Border Style="{StaticResource FieldBorder}">
+                                <Entry Text="{Binding Email}" Keyboard="Email" Placeholder="voce@exemplo.com"
+                                       SemanticProperties.Description="Email" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Spacing="6">
+                            <Label Text="Senha" Style="{StaticResource Caption}" />
+                            <Border Style="{StaticResource FieldBorder}">
+                                <Entry Text="{Binding Password}" IsPassword="True" Placeholder="••••••••"
+                                       SemanticProperties.Description="Senha" />
+                            </Border>
+                        </VerticalStackLayout>
+
+                        <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}"
+                               IsVisible="{Binding ErrorMessage, Converter={StaticResource StringToBoolConverter}}" />
+
+                        <Button Text="Entrar" Command="{Binding LoginCommand}" IsEnabled="{Binding IsBusy, Converter={StaticResource InvertedBoolConverter}}" />
+
+                        <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="{StaticResource Primary}" />
+
+                    </VerticalStackLayout>
+                </components:GlassCard>
+
+                <HorizontalStackLayout HorizontalOptions="Center" Spacing="4">
+                    <Label Text="Não tem uma conta?" Style="{StaticResource Caption}" VerticalOptions="Center" />
+                    <Button Text="Cadastre-se" Style="{StaticResource TextButton}" Command="{Binding GoToRegisterCommand}" />
+                </HorizontalStackLayout>
+
+            </VerticalStackLayout>
+
+        </Grid>
+    </ScrollView>
+
+</ContentPage>

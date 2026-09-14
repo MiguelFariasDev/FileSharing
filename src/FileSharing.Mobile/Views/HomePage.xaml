@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             x:Class="FileSharing.Mobile.Views.HomePage"
+             x:DataType="viewmodels:HomeViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Header -->
+        <VerticalStackLayout Grid.Row="0" Padding="24,20,24,8" Spacing="4">
+            <Grid ColumnDefinitions="*,Auto">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="FileSharing" Style="{StaticResource Headline}" TextColor="{StaticResource Primary}" FontSize="24" />
+                    <Label Text="{Binding UserEmail}" Style="{StaticResource Caption}" />
+                </VerticalStackLayout>
+                <Button Grid.Column="1" Text="Sair" Style="{StaticResource TextButton}" VerticalOptions="Start"
+                        Command="{Binding LogoutCommand}" />
+            </Grid>
+            <Label Text="Seus arquivos" Style="{StaticResource SubHeadline}" Margin="0,12,0,0" />
+        </VerticalStackLayout>
+
+        <RefreshView Grid.Row="1" IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}">
+            <Grid>
+
+                <CollectionView ItemsSource="{Binding Files}" Margin="24,0,24,24"
+                                IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}">
+                    <CollectionView.Header>
+                        <Button Text="+ Enviar arquivo" Margin="0,0,0,16" Command="{Binding GoToUploadCommand}" />
+                    </CollectionView.Header>
+                    <CollectionView.ItemsLayout>
+                        <LinearItemsLayout Orientation="Vertical" ItemSpacing="12" />
+                    </CollectionView.ItemsLayout>
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="viewmodels:FileItemViewModel">
+                            <components:FileCard File="{Binding .}"
+                                                  MenuCommand="{Binding BindingContext.OpenFileDetailsCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <!-- Empty state (Fase 13 §25) -->
+                <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Padding="32" Spacing="16">
+                    <Label Text="📂" FontSize="48" HorizontalOptions="Center" />
+                    <Label Text="Você ainda não enviou nenhum arquivo." HorizontalTextAlignment="Center" Style="{StaticResource Caption}" />
+                    <Button Text="Enviar arquivo" Command="{Binding GoToUploadCommand}" HorizontalOptions="Center" />
+                </VerticalStackLayout>
+
+                <!-- Loading state -->
+                <VerticalStackLayout IsVisible="{Binding IsLoading}" VerticalOptions="Center" Spacing="12">
+                    <ActivityIndicator IsRunning="{Binding IsLoading}" Color="{StaticResource Primary}" />
+                    <Label Text="Carregando seus arquivos..." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+
+                <!-- Error state -->
+                <VerticalStackLayout IsVisible="{Binding HasError}" VerticalOptions="Center" Padding="32" Spacing="16">
+                    <Label Text="⚠️" FontSize="40" HorizontalOptions="Center" />
+                    <Label Text="Não foi possível carregar seus arquivos." HorizontalTextAlignment="Center" Style="{StaticResource ErrorText}" />
+                    <Button Text="Tentar novamente" Style="{StaticResource SecondaryButton}" HorizontalOptions="Center" Command="{Binding LoadCommand}" />
+                </VerticalStackLayout>
+
+            </Grid>
+        </RefreshView>
+
+        <!-- Download-notification banner (Fase 13 §24) — an in-app SignalR-driven banner, never
+             an Android push notification (explicitly out of scope this phase). -->
+        <Border Grid.Row="1" VerticalOptions="Start" Margin="16,12" Padding="16,12"
+                BackgroundColor="{StaticResource PrimaryDark}" StrokeShape="RoundRectangle 16" Stroke="Transparent"
+                IsVisible="{Binding IsToastVisible}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <Label Grid.Column="0" Text="{Binding ToastMessage}" TextColor="{StaticResource White}" FontFamily="OpenSansSemibold" />
+                <Button Grid.Column="1" Text="✕" BackgroundColor="Transparent" TextColor="{StaticResource White}"
+                        WidthRequest="32" HeightRequest="32" Padding="0" Shadow="{x:Null}"
+                        Command="{Binding DismissToastCommand}" SemanticProperties.Description="Fechar notificação" />
+            </Grid>
+        </Border>
+
+    </Grid>
+
+</ContentPage>

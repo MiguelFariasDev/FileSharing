@@ -286,6 +286,10 @@ O JWT emitido por `POST /api/auth/login` fica **inteiramente em memória, no ser
 
 Nenhum polling periódico de `GET /api/files/mine` — a única forma de atualização automática é o evento `FileDownloaded` via SignalR. Um timer local (`System.Threading.Timer`, 30 em 30 segundos) só re-renderiza o texto de "tempo restante" — nunca faz nenhuma chamada de rede.
 
+## FileSharing.Mobile — .NET MAUI Android (Etapa 13)
+
+Documentação completa em `docs/mobile.md` (fluxo de upload/S3, autenticação, SecureStorage, SignalR, configuração, segurança, limitações). Resumo arquitetural: o projeto Mobile foi dividido em dois — `FileSharing.Mobile.Core` (`net10.0` puro: ViewModels, cliente HTTP, sessão de autenticação, orquestração de upload, cliente SignalR — nada de `Microsoft.Maui.*`/`Android.*` direto) e `FileSharing.Mobile` (a "head" `net10.0-android`: as implementações concretas de SecureStorage/FilePicker/Storage-Access-Framework/Clipboard/Share, e todo o XAML). Motivo: neste ambiente, `FileSharing.Mobile` só compila para `net10.0-android`, e um projeto de teste `net10.0` não pode referenciar um projeto `net10.0-android` — a separação é o que torna `tests/FileSharing.Mobile.Tests` executável via `dotnet test` sem emulador/dispositivo.
+
 ## Pastas → ZIP
 
 Uma pasta é sempre representada por **um único** `File` (`IsFolder = true`, `CompressionType = Zip`), nunca por múltiplos registros — um `File` por arquivo dentro da pasta destruiria a noção de "uma pasta compartilhada".
@@ -415,10 +419,24 @@ src/
     Components/Layout/{MainLayout,AuthLayout}.razor
     Components/Shared/{FileLinkCell,ToastContainer,ConnectionStatus,SessionGuard,RedirectToLogin}.razor
     wwwroot/js/interop.js               # clipboard only — o JWT nunca chega ao JS
-  FileSharing.Mobile/
-    Models/UploadableItem.cs
-    Services/Api/FileSharingApiClient.cs
-    Services/Upload/{IFilePickerService,IFolderPickerService,IFileUploadService,ProgressReportingStream}.cs
+  FileSharing.Mobile.Core/               # .NET MAUI Android (Etapa 13) — ver docs/mobile.md
+    Models/{UploadableItem,ApiResult,PublicLinkResponse,UploadStage}.cs
+    Services/ApiClient/{FileSharingApiClient,ApiClientOptions}.cs
+    Services/Authentication/AuthSession.cs
+    Services/Upload/{FileUploadService,S3UploadHttpClient,ProgressReportingStream,interfaces}.cs
+    Services/SignalR/{SignalRNotificationService,NotificationConnectionState,interfaces}.cs
+    Services/Platform/{INavigationService,IClipboardService,IShareService,IMainThreadDispatcher}.cs
+    Services/Storage/ISecureStorageService.cs
+    ViewModels/{Login,Register,Home,Upload,FileDetails,History,FileItem}ViewModel.cs
+  FileSharing.Mobile/                    # net10.0-android head project — MAUI/Android-specific only
+    Services/Storage/SecureStorageService.cs        # only place touching Microsoft.Maui.Storage.SecureStorage
+    Services/Upload/FilePickerService.cs            # only place touching Microsoft.Maui.Storage.FilePicker
+    Services/Platform/{Navigation,Clipboard,Share,MainThreadDispatcher}Service.cs
     Platforms/Android/{FolderPickerService,ActivityResultBridge}.cs
-    ViewModels/UploadViewModel.cs
+    Views/{Login,Register,Home,Upload,FileDetails,History}Page.xaml
+    Components/{GlassCard,FileCard,StatusBadge}.xaml
+    Converters/{IconKeyToEmojiConverter,StatusLabelToKindConverter,StringToBoolConverter,InvertedBoolConverter}.cs
+    Resources/Raw/appsettings.json                  # Api:BaseUrl / Api:HubUrl — never a secret
+    Resources/Styles/{Colors,Styles}.xaml            # blue/glass theme
+    MauiProgram.cs, App.xaml.cs, AppShell.xaml.cs
 ```

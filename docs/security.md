@@ -1,6 +1,6 @@
 # Segurança
 
-Documentação da segurança implementada até a Etapa 12 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening + Observability & Diagnostics).
+Documentação da segurança implementada até a Etapa 13 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening + Observability & Diagnostics + Mobile Android).
 
 ---
 
@@ -193,6 +193,16 @@ Avaliado adicionar o SDK do OpenTelemetry (`OpenTelemetry.Extensions.Hosting` + 
 - O enunciado desta etapa já autoriza explicitamente essa escolha quando "criar complexidade desnecessária ou conflitos de versão", e não pede nenhum backend (Jaeger/Grafana/Datadog/X-Ray) para receber os dados agora — só que a aplicação fique **pronta**.
 - Em vez disso, a base do próprio .NET (`System.Diagnostics.Metrics.Meter`/`Counter`/`Histogram` — zero pacotes NuGet novos, parte do BCL desde o .NET 6) cobre a seção de métricas (`FileSharing.Application.Observability.AppMetrics`), e o ASP.NET Core já emite `System.Diagnostics.Activity` para cada requisição automaticamente, sem nenhum código deste projeto. Isso é **exatamente** o que um `MeterListener`/`ActivityListener` do OpenTelemetry SDK consumiria mais tarde — `AppMetrics` já expõe seu `Meter` publicamente sob o nome `"FileSharing.Application"` justamente para que uma etapa futura possa ligar `.AddMeter("FileSharing.Application")` a um `MeterProvider` real sem alterar uma linha desta classe.
 - Hoje, os contadores/histogramas já são observáveis localmente via `dotnet-counters monitor --process-id <pid> FileSharing.Application`, sem nenhuma configuração adicional.
+
+## Mobile (Etapa 13)
+
+Documentação completa em `docs/mobile.md`. Resumo do que a auditoria desta etapa confirmou:
+
+- **Nenhuma credencial AWS, chave de assinatura de JWT, ou credencial de banco de dados jamais chega ao Mobile.** O app só recebe a presigned URL já assinada pela Api; não referencia nenhum pacote `AWSSDK.*`.
+- **JWT persistido via `SecureStorage`** (Android Keystore), atrás de `ISecureStorageService` — nunca em `Preferences`, arquivo, log ou recurso do APK.
+- **`FileSharingApiClient` (Mobile) não tem nenhuma dependência de `ILogger`** — não existe caminho de código nele que pudesse logar o header `Authorization`, o JWT, ou uma presigned URL.
+- **`MobileSecretsScanTests`** (`tests/FileSharing.Mobile.Tests/Security/`) varre automaticamente o código-fonte do Mobile por padrões de segredo (prefixo de AWS Access Key, `aws_secret_access_key`, cabeçalhos PEM de chave privada) e confirma que `Resources/Raw/appsettings.json` só contém as duas chaves esperadas (`BaseUrl`/`HubUrl`), nenhuma delas parecendo uma credencial.
+- **Busca manual adicional** (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `JWT_SECRET`, `secret`, `token`, `Authorization`, `presigned`, `connection string`) em todo `src/FileSharing.Mobile`/`src/FileSharing.Mobile.Core` não encontrou nenhum valor real — só identificadores de código e comentários explicativos legítimos (ex.: a propriedade `AccessToken` de um DTO, o header `Authorization` sendo corretamente *setado* com o JWT do usuário).
 
 ### Limitação conhecida do LocalStack Community (dev only)
 

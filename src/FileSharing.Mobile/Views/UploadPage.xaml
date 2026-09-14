@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:models="clr-namespace:FileSharing.Mobile.Core.Models;assembly=FileSharing.Mobile.Core"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             x:Class="FileSharing.Mobile.Views.UploadPage"
+             x:DataType="viewmodels:UploadViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="20">
+
+            <Grid ColumnDefinitions="Auto,*">
+                <Button Grid.Column="0" Text="&#8592;" Style="{StaticResource TextButton}" Command="{Binding DoneCommand}" />
+                <Label Grid.Column="1" Text="Enviar arquivo" Style="{StaticResource SubHeadline}" VerticalOptions="Center" HorizontalOptions="Center" Margin="-40,0,0,0" />
+            </Grid>
+
+            <!-- 1) Picking (Fase 13 §14, steps 1-3) -->
+            <VerticalStackLayout Spacing="16" IsVisible="{Binding IsIdle}">
+
+                <components:GlassCard IsVisible="{Binding HasSelection, Converter={StaticResource InvertedBoolConverter}}">
+                    <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+                        <Label Text="📎" FontSize="40" HorizontalOptions="Center" />
+                        <Label Text="Selecione um arquivo ou uma pasta para começar." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+                        <Button Text="Selecionar arquivo" Command="{Binding PickFileCommand}" />
+                        <Button Text="Selecionar pasta" Style="{StaticResource SecondaryButton}" Command="{Binding PickFolderCommand}" />
+                    </VerticalStackLayout>
+                </components:GlassCard>
+
+                <!-- 2) Preview before sending (Fase 13 §14, step 2) -->
+                <components:GlassCard IsVisible="{Binding HasSelection}" x:DataType="viewmodels:UploadViewModel">
+                    <VerticalStackLayout Spacing="14">
+                        <Label Text="Pronto para enviar" Style="{StaticResource SubHeadline}" FontSize="17" />
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" BindingContext="{Binding SelectedItem}" x:DataType="models:UploadableItem">
+                            <Border Grid.Column="0" WidthRequest="44" HeightRequest="44" StrokeShape="RoundRectangle 14"
+                                    BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent">
+                                <Label Text="📄" FontSize="20" HorizontalOptions="Center" VerticalOptions="Center" />
+                            </Border>
+                            <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                <Label Text="{Binding FileName}" FontFamily="OpenSansSemibold" LineBreakMode="TailTruncation" />
+                                <Label Text="{Binding ContentType}" Style="{StaticResource Caption}" />
+                            </VerticalStackLayout>
+                        </Grid>
+                        <BoxView HeightRequest="1" Color="{StaticResource Gray200}" />
+                        <Button Text="Escolher outro" Style="{StaticResource TextButton}" HorizontalOptions="Start" Command="{Binding PickFileCommand}" />
+                        <Button Text="Confirmar envio" Command="{Binding ConfirmUploadCommand}" />
+                        <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}"
+                               IsVisible="{Binding ErrorMessage, Converter={StaticResource StringToBoolConverter}}" />
+                    </VerticalStackLayout>
+                </components:GlassCard>
+
+            </VerticalStackLayout>
+
+            <!-- 3) In progress (Fase 13 §15) -->
+            <components:GlassCard IsVisible="{Binding IsBusy}">
+                <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+                    <Label Text="⬆" FontSize="32" TextColor="{StaticResource Primary}" HorizontalOptions="Center" />
+                    <Label Text="{Binding SelectedItem.FileName, StringFormat='Enviando {0}'}" FontFamily="OpenSansSemibold" HorizontalTextAlignment="Center" />
+                    <ProgressBar Progress="{Binding ProgressFraction}" />
+                    <Label Text="{Binding ProgressFraction, StringFormat='{0:P0}'}" FontFamily="OpenSansSemibold" FontSize="20" HorizontalOptions="Center" />
+                    <Label Text="{Binding ProgressDetailLabel}" Style="{StaticResource Caption}" HorizontalOptions="Center" />
+                    <Label Text="{Binding StageLabel}" Style="{StaticResource Caption}" HorizontalOptions="Center" />
+                    <Button Text="Cancelar" Style="{StaticResource DestructiveButton}" Command="{Binding CancelUploadCommand}" />
+                </VerticalStackLayout>
+            </components:GlassCard>
+
+            <!-- 4) Failed -->
+            <components:GlassCard IsVisible="{Binding IsFailed}">
+                <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+                    <Label Text="⚠️" FontSize="36" HorizontalOptions="Center" />
+                    <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" HorizontalTextAlignment="Center" />
+                    <Button Text="Tentar novamente" Command="{Binding ConfirmUploadCommand}" />
+                </VerticalStackLayout>
+            </components:GlassCard>
+
+            <!-- 5) Success + link (Fase 13 §19) -->
+            <components:GlassCard IsVisible="{Binding IsCompleted}">
+                <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
+                    <Label Text="✅" FontSize="40" HorizontalOptions="Center" />
+                    <Label Text="Arquivo enviado!" Style="{StaticResource SubHeadline}" HorizontalOptions="Center" />
+                    <Label Text="{Binding SelectedItem.FileName}" FontFamily="OpenSansSemibold" HorizontalTextAlignment="Center" />
+                    <Label Text="Disponível por 24 horas." Style="{StaticResource Caption}" HorizontalOptions="Center" />
+
+                    <Border Style="{StaticResource FieldBorder}" IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}">
+                        <Label Text="{Binding GeneratedLink}" LineBreakMode="TailTruncation" FontSize="13" />
+                    </Border>
+
+                    <Button Text="Copiar link" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
+                            IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
+                    <Button Text="Compartilhar" Command="{Binding ShareLinkCommand}"
+                            IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
+                    <Button Text="Concluir" Style="{StaticResource TextButton}" Command="{Binding DoneCommand}" />
+                </VerticalStackLayout>
+            </components:GlassCard>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

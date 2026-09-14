@@ -1,5 +1,5 @@
-using FileSharing.Mobile.Models;
-using Microsoft.Maui.Storage;
+using FileSharing.Mobile.Core.Models;
+using FileSharing.Mobile.Core.Services.Upload;
 
 namespace FileSharing.Mobile.Services.Upload;
 

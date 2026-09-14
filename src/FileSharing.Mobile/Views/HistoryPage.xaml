@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:files="clr-namespace:FileSharing.Application.DTOs.Files;assembly=FileSharing.Application"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             x:Class="FileSharing.Mobile.Views.HistoryPage"
+             x:DataType="viewmodels:HistoryViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <Grid Grid.Row="0" Padding="24,20,24,8" ColumnDefinitions="Auto,*">
+            <Button Grid.Column="0" Text="&#8592;" Style="{StaticResource TextButton}" Clicked="OnBackClicked" />
+            <Label Grid.Column="1" Text="Histórico de downloads" Style="{StaticResource SubHeadline}" VerticalOptions="Center" Margin="-40,0,0,0" HorizontalOptions="Center" />
+        </Grid>
+
+        <Grid Grid.Row="1" Padding="24">
+
+            <CollectionView ItemsSource="{Binding Entries}" IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}">
+                <CollectionView.ItemsLayout>
+                    <LinearItemsLayout Orientation="Vertical" ItemSpacing="10" />
+                </CollectionView.ItemsLayout>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="files:DownloadHistoryEntryResponse">
+                        <components:GlassCard>
+                            <HorizontalStackLayout Spacing="10">
+                                <Label Text="⬇" TextColor="{StaticResource Primary}" VerticalOptions="Center" />
+                                <Label Text="{Binding DownloadedAt, StringFormat='{0:dd/MM/yyyy HH:mm}'}" VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                        </components:GlassCard>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Spacing="12">
+                <Label Text="🕒" FontSize="40" HorizontalOptions="Center" />
+                <Label Text="Este arquivo ainda não foi baixado." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout IsVisible="{Binding IsLoading}" VerticalOptions="Center" Spacing="12">
+                <ActivityIndicator IsRunning="{Binding IsLoading}" Color="{StaticResource Primary}" />
+            </VerticalStackLayout>
+
+            <VerticalStackLayout IsVisible="{Binding HasError}" VerticalOptions="Center" Spacing="12">
+                <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" HorizontalTextAlignment="Center" />
+                <Button Text="Tentar novamente" Style="{StaticResource SecondaryButton}" HorizontalOptions="Center" Command="{Binding RetryCommand}" />
+            </VerticalStackLayout>
+
+        </Grid>
+    </Grid>
+
+</ContentPage>

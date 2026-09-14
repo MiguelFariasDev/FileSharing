@@ -1,9 +1,37 @@
-﻿namespace FileSharing.Mobile;
+using FileSharing.Mobile.Core.Services.Authentication;
+using FileSharing.Mobile.Core.Services.SignalR;
+using FileSharing.Mobile.Views;
+
+namespace FileSharing.Mobile;
 
 public partial class AppShell : Shell
 {
-	public AppShell()
-	{
-		InitializeComponent();
-	}
+    public AppShell(AuthSession authSession, INotificationService notificationService)
+    {
+        InitializeComponent();
+
+        Routing.RegisterRoute("register", typeof(RegisterPage));
+        Routing.RegisterRoute("upload", typeof(UploadPage));
+        Routing.RegisterRoute("filedetails", typeof(FileDetailsPage));
+        Routing.RegisterRoute("history", typeof(HistoryPage));
+
+        _ = InitializeAsync(authSession, notificationService);
+    }
+
+    /// <summary>
+    /// Restores a previous session (if any) before the user sees anything — Login is the first
+    /// ShellContent declared in AppShell.xaml, so an unauthenticated launch already lands there
+    /// with no extra work; this only needs to actively redirect past it when a valid session
+    /// was found in SecureStorage (Fase 13 §4's "restauração da sessão").
+    /// </summary>
+    private async Task InitializeAsync(AuthSession authSession, INotificationService notificationService)
+    {
+        await authSession.RestoreAsync();
+
+        if (authSession.IsAuthenticated)
+        {
+            _ = notificationService.StartAsync();
+            await GoToAsync("//home");
+        }
+    }
 }

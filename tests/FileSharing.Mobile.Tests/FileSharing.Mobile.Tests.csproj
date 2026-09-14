@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Moq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- FileSharing.Mobile itself (net10.0-android-only on this machine) cannot be referenced
+         from a plain net10.0 test project — see FileSharing.Mobile.Core.csproj's own comment.
+         Everything testable without a real Android runtime lives in that Core project instead. -->
+    <ProjectReference Include="..\..\src\FileSharing.Application\FileSharing.Application.csproj" />
+    <ProjectReference Include="..\..\src\FileSharing.Mobile.Core\FileSharing.Mobile.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
+             x:Class="FileSharing.Mobile.Views.FileDetailsPage"
+             x:DataType="viewmodels:FileDetailsViewModel"
+             x:Name="RootPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="Transparent">
+
+    <!--
+        A bottom sheet built from plain .NET MAUI primitives (Fase 13 §13): a full-screen scrim
+        (tap to dismiss) plus a bottom-anchored, top-rounded card that slides up on appearing
+        (see code-behind). Deliberately not a real OS-level modal/CommunityToolkit.Maui Popup —
+        see docs/mobile.md for why: this reaches the same "possui animação / fecha ao tocar fora
+        / não bloqueia permanentemente" requirements without a new package.
+    -->
+    <Grid BackgroundColor="{StaticResource ScrimColor}">
+        <Grid.GestureRecognizers>
+            <TapGestureRecognizer Tapped="OnScrimTapped" />
+        </Grid.GestureRecognizers>
+
+        <Border x:Name="SheetBorder" VerticalOptions="End" BackgroundColor="{StaticResource GlassSurfaceStrong}"
+                StrokeShape="RoundRectangle 28,28,0,0" Stroke="{StaticResource GlassBorder}" StrokeThickness="1"
+                Padding="24" Shadow="{StaticResource GlassShadow}">
+            <Border.GestureRecognizers>
+                <!-- Swallow taps on the sheet itself so they never bubble up to the scrim's
+                     dismiss handler. -->
+                <TapGestureRecognizer Tapped="OnSheetTapped" />
+            </Border.GestureRecognizers>
+
+            <VerticalStackLayout Spacing="16">
+
+                <BoxView WidthRequest="40" HeightRequest="4" CornerRadius="2" Color="{StaticResource Gray300}" HorizontalOptions="Center" />
+
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" BindingContext="{Binding File}">
+                    <Border Grid.Column="0" WidthRequest="48" HeightRequest="48" StrokeShape="RoundRectangle 16"
+                            BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent">
+                        <Label Text="{Binding IconKey, Converter={StaticResource IconKeyToEmojiConverter}}" FontSize="22"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                        <Label Text="{Binding OriginalFileName}" FontFamily="OpenSansSemibold" FontSize="17" LineBreakMode="TailTruncation" />
+                        <Label FontSize="13" TextColor="{StaticResource Gray500}">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="{Binding TypeLabel}" />
+                                    <Span Text=" · " />
+                                    <Span Text="{Binding FormattedSize}" />
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+                        <HorizontalStackLayout Spacing="10">
+                            <components:StatusBadge Text="{Binding StatusLabel}" Kind="{Binding StatusLabel, Converter={StaticResource StatusLabelToKindConverter}}" />
+                            <Label Text="{Binding RemainingLabel}" Style="{StaticResource Caption}" VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                    </VerticalStackLayout>
+                </Grid>
+
+                <BoxView HeightRequest="1" Color="{StaticResource Gray200}" />
+
+                <!-- Regenerate confirmation (mirrors FileSharing.Web's FileLinkCell UX exactly). -->
+                <VerticalStackLayout Spacing="10" IsVisible="{Binding ShowRegenerateConfirm}">
+                    <Label Text="Gerar um novo link invalidará o link atual. Deseja continuar?" Style="{StaticResource Caption}" />
+                    <Button Text="Sim, gerar novo link" Style="{StaticResource DestructiveButton}"
+                            IsEnabled="{Binding LinkBusy, Converter={StaticResource InvertedBoolConverter}}"
+                            Command="{Binding ConfirmRegenerateCommand}" />
+                    <Button Text="Cancelar" Style="{StaticResource SecondaryButton}"
+                            IsEnabled="{Binding LinkBusy, Converter={StaticResource InvertedBoolConverter}}"
+                            Command="{Binding CancelRegenerateCommand}" />
+                </VerticalStackLayout>
+
+                <VerticalStackLayout Spacing="10" IsVisible="{Binding ShowRegenerateConfirm, Converter={StaticResource InvertedBoolConverter}}">
+
+                    <!-- Once a link has been generated this session, offer copy/share directly. -->
+                    <Border Style="{StaticResource FieldBorder}" IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}">
+                        <Label Text="{Binding GeneratedLink}" LineBreakMode="TailTruncation" FontSize="13" />
+                    </Border>
+                    <Button Text="↗ Compartilhar link" Command="{Binding ShareLinkCommand}"
+                            IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
+                    <Button Text="⧉ Copiar link" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
+                            IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
+
+                    <Button Text="↻ Gerar link" Style="{StaticResource SecondaryButton}"
+                            IsVisible="{Binding GeneratedLink, Converter={StaticResource InvertedBoolConverter}}"
+                            IsEnabled="{Binding LinkBusy, Converter={StaticResource InvertedBoolConverter}}"
+                            Command="{Binding GenerateOrRegenerateClickedCommand}" />
+
+                    <Button Text="↓ Histórico" Style="{StaticResource SecondaryButton}" Command="{Binding ViewHistoryCommand}" />
+
+                    <ActivityIndicator IsRunning="{Binding LinkBusy}" IsVisible="{Binding LinkBusy}" Color="{StaticResource Primary}" />
+                    <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}"
+                           IsVisible="{Binding ErrorMessage, Converter={StaticResource StringToBoolConverter}}" />
+
+                </VerticalStackLayout>
+
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+
+</ContentPage>

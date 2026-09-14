@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="FileSharing.Mobile.Components.StatusBadge"
+             x:Name="Root">
+
+    <!--
+        Status is never conveyed by color alone (Fase 13 §26) — the text itself ("Ativo",
+        "Processando", "Expirado") is always present; the color/dot is a redundant, faster-to-
+        scan reinforcement for sighted users, never the only signal.
+    -->
+    <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
+        <Ellipse WidthRequest="8" HeightRequest="8" Fill="{Binding DotColor, Source={x:Reference Root}}" VerticalOptions="Center" />
+        <Label Text="{Binding Text, Source={x:Reference Root}}"
+               TextColor="{Binding TextColor, Source={x:Reference Root}}"
+               FontFamily="OpenSansSemibold"
+               FontSize="13" />
+    </HorizontalStackLayout>
+
+</ContentView>
