@@ -181,4 +181,49 @@ public class ExpiredFileCleanupJobIntegrationTests : IAsyncLifetime
         Assert.Equal(FileStatus.Expired, reloaded.Status);
         Assert.False(await _storageService.ObjectExistsAsync(file.StorageKey));
     }
+
+    [Fact]
+    public async Task ExecuteAsync_RunningConcurrently_NeverThrows_AndLeavesTheFileConsistentlyExpired()
+    {
+        // In production, Hangfire's [DisableConcurrentExecution] (see IExpiredFileCleanupJob)
+        // guarantees only one worker ever runs this job at a time across the whole cluster —
+        // this test deliberately bypasses that guarantee (two independent DbContext instances,
+        // like two separate Hangfire server processes would each have, racing on the very same
+        // row) to prove the job's own logic degrades safely even if that lock were ever somehow
+        // lost, rather than relying solely on Hangfire's lock as the only safety net.
+        var file = await SeedActiveFileAsync(DateTimeOffset.UtcNow.AddHours(-25), putRealObject: true);
+
+        ExpiredFileCleanupJob CreateIndependentSut()
+        {
+            var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseNpgsql(PostgresConnectionString)
+                .Options;
+            return new ExpiredFileCleanupJob(
+                new ApplicationDbContext(dbOptions),
+                _storageService,
+                Options.Create(new ExpirationCleanupOptions { BatchSize = 100 }),
+                NullLogger<ExpiredFileCleanupJob>.Instance);
+        }
+
+        var runA = CreateIndependentSut().ExecuteAsync();
+        var runB = CreateIndependentSut().ExecuteAsync();
+
+        var results = await Task.WhenAll(runA, runB);
+
+        // Whichever run's SaveChanges lost the race may legitimately see 0 candidates left (the
+        // other run already claimed/expired the row) or fail once against a row it no longer
+        // recognizes as Active — either way, nothing here should be an *unhandled* exception:
+        // ExecuteAsync's own per-file try/catch (see ExpiredFileCleanupJob) is exactly the
+        // safety net being verified.
+        Assert.All(results, r => Assert.True(r.Failed <= 1));
+
+        // _dbContext's own identity map still holds the entity instance SeedActiveFileAsync
+        // tracked (as Active) — neither runA nor runB touched it, both used their own
+        // independent DbContext — so a plain query here would resolve back to that stale
+        // tracked instance instead of the row's real, now-updated state. An explicit reload
+        // forces this context to actually re-read the current row from Postgres.
+        await _dbContext.Entry(file).ReloadAsync();
+        Assert.Equal(FileStatus.Expired, file.Status);
+        Assert.False(await _storageService.ObjectExistsAsync(file.StorageKey));
+    }
 }

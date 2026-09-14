@@ -56,7 +56,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["Jwt:Issuer"] = "FileSharing.Tests",
                 ["Jwt:Audience"] = "FileSharing.Api.Tests",
                 ["Jwt:SecretKey"] = TestJwtSecretKey,
-                ["Jwt:ExpirationMinutes"] = "60"
+                ["Jwt:ExpirationMinutes"] = "60",
+                // Nearly every functional test in this project logs in at least once (often
+                // several times per test class, all sharing one host/one IP partition) — the
+                // real per-IP limit (Program.cs, RateLimiterPolicyNames.Auth) would make most of
+                // this project flaky. AuthRateLimitingTests overrides this back down on its own
+                // isolated host (via WithWebHostBuilder) to actually exercise the policy.
+                ["RateLimiting:Auth:PermitLimit"] = "100000"
             });
         });
 

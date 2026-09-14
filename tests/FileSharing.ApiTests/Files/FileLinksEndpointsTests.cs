@@ -155,4 +155,57 @@ public class FileLinksEndpointsTests : IClassFixture<CustomWebApplicationFactory
 
         Assert.NotEqual(firstBody.GetProperty("accessToken").GetString(), secondBody.GetProperty("accessToken").GetString());
     }
+
+    [Fact]
+    public async Task GenerateLink_CalledConcurrently_NeverThrows_AndExactlyOneResultingTokenResolves()
+    {
+        // Neither call knows about the other — no lock is taken (see FilePublicLinkService).
+        // Whichever write lands last in Postgres wins; the important properties are that
+        // neither request fails/throws and the final state is unambiguous: exactly one of the
+        // two returned tokens still resolves publicly afterward, never both and never neither.
+        var token = await RegisterAndLoginAsync();
+        var fileId = await CreateActiveFileAsync(token);
+
+        var responses = await Task.WhenAll(
+            _client.SendAsync(AuthenticatedRequest(HttpMethod.Post, $"/api/files/{fileId}/link", token)),
+            _client.SendAsync(AuthenticatedRequest(HttpMethod.Post, $"/api/files/{fileId}/link", token)));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+
+        var tokens = await Task.WhenAll(responses.Select(async r =>
+        {
+            var body = await r.Content.ReadFromJsonAsync<JsonElement>();
+            return body.GetProperty("accessToken").GetString()!;
+        }));
+
+        var stillResolving = await Task.WhenAll(tokens.Select(async accessToken =>
+        {
+            var response = await _client.GetAsync($"/api/public/files/{accessToken}");
+            return response.StatusCode == HttpStatusCode.OK;
+        }));
+
+        Assert.Single(stillResolving, resolves => resolves);
+    }
+
+    [Fact]
+    public async Task GenerateLink_CalledTwice_TheOldTokenNoLongerResolvesPublicly()
+    {
+        // Only the hash is ever persisted (File.AccessTokenHash) — regenerating overwrites it,
+        // so there is no way for the previous plaintext token to still match anything in the
+        // database. Verified end to end through the actual public lookup endpoint, not just by
+        // inspecting the stored hash.
+        var token = await RegisterAndLoginAsync();
+        var fileId = await CreateActiveFileAsync(token);
+
+        using var first = AuthenticatedRequest(HttpMethod.Post, $"/api/files/{fileId}/link", token);
+        var firstBody = await (await _client.SendAsync(first)).Content.ReadFromJsonAsync<JsonElement>();
+        var oldAccessToken = firstBody.GetProperty("accessToken").GetString()!;
+
+        using var second = AuthenticatedRequest(HttpMethod.Post, $"/api/files/{fileId}/link", token);
+        await _client.SendAsync(second);
+
+        var oldTokenResponse = await _client.GetAsync($"/api/public/files/{oldAccessToken}");
+
+        Assert.Equal(HttpStatusCode.NotFound, oldTokenResponse.StatusCode);
+    }
 }

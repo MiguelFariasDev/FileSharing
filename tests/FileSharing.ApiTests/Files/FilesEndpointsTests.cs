@@ -118,6 +118,44 @@ public class FilesEndpointsTests : IClassFixture<CustomWebApplicationFactory>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("../../../etc/passwd.pdf")]
+    [InlineData("..\\..\\windows\\win32.pdf")]
+    [InlineData("folder/document.pdf")]
+    [InlineData("folder\\document.pdf")]
+    public async Task InitiateUpload_WithPathTraversalOrSeparatorsInFileName_ReturnsBadRequest(string fileName)
+    {
+        // The name is only ever stored as metadata — File.StorageKey is always a server-generated
+        // random token (FileUploadService), never derived from it — but a name shaped like this
+        // has no legitimate reason to exist and is rejected outright as defense in depth.
+        var token = await RegisterAndLoginAsync();
+
+        using var request = AuthenticatedRequest(HttpMethod.Post, "/api/files/upload", token);
+        request.Content = JsonContent.Create(new InitiateUploadRequest(fileName, "application/pdf", 1024, false));
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task InitiateUpload_WithValidFileName_NeverExposesTheGeneratedStorageKey()
+    {
+        var token = await RegisterAndLoginAsync();
+        var initiated = await InitiateUploadAsync(token, new InitiateUploadRequest("document.pdf", "application/pdf", 1024, false));
+
+        // The presigned upload URL necessarily contains the storage key (it's the S3 object
+        // key being signed for), but nothing in the response should expose it as a separate,
+        // named field a client could read back out independent of that opaque URL.
+        using var request = AuthenticatedRequest(HttpMethod.Post, "/api/files/upload", token);
+        request.Content = JsonContent.Create(new InitiateUploadRequest("document.pdf", "application/pdf", 1024, false));
+        var response = await _client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("storageKey", body, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(Guid.Empty, initiated.FileId);
+    }
+
     [Fact]
     public async Task CompleteUpload_WithoutToken_ReturnsUnauthorized()
     {

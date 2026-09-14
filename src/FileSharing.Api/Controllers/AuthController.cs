@@ -4,11 +4,19 @@ using FileSharing.Application.Services.Auth;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FileSharing.Api.Controllers;
 
+/// <summary>
+/// Register/Login are the only unauthenticated actions here and the obvious target for
+/// credential-stuffing/brute-force — [EnableRateLimiting] slows that down per client IP (see
+/// RateLimiterPolicyNames.Auth in Program.cs). Applied at the class level rather than per-action
+/// since Me carries [Authorize] already and is not a meaningful brute-force target either way.
+/// </summary>
 [ApiController]
 [Route("api/auth")]
+[EnableRateLimiting(RateLimiterPolicyNames.Auth)]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;

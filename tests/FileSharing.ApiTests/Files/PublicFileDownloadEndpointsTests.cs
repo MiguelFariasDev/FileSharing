@@ -300,6 +300,29 @@ public class PublicFileDownloadEndpointsTests : IClassFixture<CustomWebApplicati
     }
 
     [Fact]
+    public async Task DownloadPublicFile_CalledConcurrently_RegistersASeparateDownloadForEachCall_WithNoLostWrites()
+    {
+        // Two recipients of the same public link hitting it at the same instant is a realistic
+        // scenario (unlike sequential calls above) — each request gets its own scoped
+        // DbContext, so this is really exercising whether concurrent inserts against the same
+        // FileId race or silently drop a row, not whether the endpoint itself is thread-safe.
+        var ownerToken = await RegisterAndLoginAsync();
+        var (fileId, accessToken) = await CreatePublicLinkAsync(ownerToken);
+        SetupObjectExists();
+        SetupPresignedDownloadUrl();
+
+        const int concurrentDownloads = 5;
+        var responses = await Task.WhenAll(Enumerable.Range(0, concurrentDownloads)
+            .Select(_ => _client.GetAsync($"/api/public/files/{accessToken}/download")));
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+
+        var downloads = await GetDownloadsAsync(fileId);
+        Assert.Equal(concurrentDownloads, downloads.Count);
+        Assert.Equal(concurrentDownloads, downloads.Select(d => d.Id).Distinct().Count());
+    }
+
+    [Fact]
     public async Task DownloadPublicFile_ThereIsNoRouteToDownloadByFileIdAlone()
     {
         var ownerToken = await RegisterAndLoginAsync();

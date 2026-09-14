@@ -58,4 +58,18 @@ public static class FileTypePolicy
         var extension = Path.GetExtension(fileName);
         return !string.IsNullOrEmpty(extension) && IsExtensionAllowedForContentType(contentType, extension);
     }
+
+    /// <summary>
+    /// True when the original file name is safe to store as plain metadata. The name is never
+    /// used to build a filesystem/S3 path (<c>File.StorageKey</c> is always a server-generated
+    /// <see cref="RandomTokenGenerator"/> value — see FileUploadService), so a path-traversal
+    /// sequence in it cannot actually reach storage today; this rejects it anyway, as defense in
+    /// depth against any future code path that might reuse the original name more directly, and
+    /// because a name like "../../etc/passwd.pdf" has no legitimate reason to exist regardless.
+    /// </summary>
+    public static bool IsFileNameSafe(string fileName) =>
+        !fileName.Contains("..", StringComparison.Ordinal) &&
+        !fileName.Contains('/') &&
+        !fileName.Contains('\\') &&
+        fileName.All(c => !char.IsControl(c));
 }

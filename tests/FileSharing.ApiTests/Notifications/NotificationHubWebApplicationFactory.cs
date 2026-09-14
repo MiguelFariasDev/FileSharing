@@ -54,7 +54,9 @@ public class NotificationHubWebApplicationFactory : WebApplicationFactory<Progra
                 ["Jwt:Issuer"] = "FileSharing.Tests",
                 ["Jwt:Audience"] = "FileSharing.Api.Tests",
                 ["Jwt:SecretKey"] = TestJwtSecretKey,
-                ["Jwt:ExpirationMinutes"] = "60"
+                ["Jwt:ExpirationMinutes"] = "60",
+                // See the identical override in CustomWebApplicationFactory.
+                ["RateLimiting:Auth:PermitLimit"] = "100000"
             });
         });
 

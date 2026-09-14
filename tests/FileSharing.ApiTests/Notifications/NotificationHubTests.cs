@@ -123,6 +123,41 @@ public class NotificationHubTests : IClassFixture<NotificationHubWebApplicationF
     }
 
     [Fact]
+    public async Task Connection_StoppedThenRestarted_ReconnectsAndReceivesNotificationsAgain()
+    {
+        // SignalRNotificationService.WithAutomaticReconnect() (FileSharing.Web) recovers from a
+        // genuine mid-connection network blip — TestServer has no real socket to interrupt, so
+        // that exact scenario isn't reproducible here (documented limitation, see the Fase 11
+        // final report). What this test does verify end to end: after a connection ends (of any
+        // kind — a blip or a deliberate stop) and the client starts a fresh one, that new
+        // connection is accepted and independently receives events again — the same observable
+        // outcome an end user sees once WithAutomaticReconnect finishes its own retry cycle.
+        var (_, ownerAccessToken) = await RegisterAndLoginAsync();
+        var (fileId, publicToken) = await UploadAndLinkFileAsync(ownerAccessToken);
+
+        await using (var firstConnection = BuildConnection(ownerAccessToken))
+        {
+            await firstConnection.StartAsync();
+            Assert.Equal(HubConnectionState.Connected, firstConnection.State);
+            await firstConnection.StopAsync();
+            Assert.Equal(HubConnectionState.Disconnected, firstConnection.State);
+        }
+
+        await using var secondConnection = BuildConnection(ownerAccessToken);
+        var received = new TaskCompletionSource<FileDownloadedNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
+        secondConnection.On<FileDownloadedNotification>(FileSharing.Api.Hubs.SignalRFileDownloadNotifier.FileDownloadedEvent, received.SetResult);
+
+        await secondConnection.StartAsync();
+        Assert.Equal(HubConnectionState.Connected, secondConnection.State);
+
+        var downloadResponse = await _client.GetAsync($"/api/public/files/{publicToken}/download");
+        Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
+
+        var notification = await WaitForNotificationAsync(received);
+        Assert.Equal(fileId, notification.FileId);
+    }
+
+    [Fact]
     public async Task Download_NotifiesOnlyTheOwner_NeverAnUnrelatedUser()
     {
         var (_, ownerAccessToken) = await RegisterAndLoginAsync();

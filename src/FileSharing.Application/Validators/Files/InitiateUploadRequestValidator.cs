@@ -16,7 +16,9 @@ public class InitiateUploadRequestValidator : AbstractValidator<InitiateUploadRe
 
         RuleFor(x => x.FileName)
             .NotEmpty()
-            .MaximumLength(255);
+            .MaximumLength(255)
+            .Must(FileTypePolicy.IsFileNameSafe)
+            .WithMessage("Nome de arquivo inválido.");
 
         RuleFor(x => x.ContentType)
             .NotEmpty()
