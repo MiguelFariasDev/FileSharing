@@ -53,6 +53,7 @@ public static class StorageExtensions
         services.AddScoped<IFileUploadService, FileUploadService>();
         services.AddScoped<IFilePublicLinkService, FilePublicLinkService>();
         services.AddScoped<IFileDownloadService, FileDownloadService>();
+        services.AddScoped<IFileQueryService, FileQueryService>();
 
         services.AddValidatorsFromAssemblyContaining<InitiateUploadRequestValidator>();
 

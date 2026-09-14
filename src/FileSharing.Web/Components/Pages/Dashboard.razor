@@ -1,0 +1,350 @@
+@page "/dashboard"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
+@inject FileSharingApiClient ApiClient
+@inject SignalRNotificationService NotificationService
+@inject ToastService ToastService
+@inject IJSRuntime JsRuntime
+
+<PageTitle>Meus arquivos — FileSharing</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Meus arquivos</h1>
+    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="LoadFilesAsync" disabled="@_loading">
+        Atualizar
+    </button>
+</div>
+
+@if (_loading)
+{
+    <p role="status">Carregando arquivos...</p>
+}
+else if (_loadError is not null)
+{
+    <div class="alert alert-danger" role="alert">
+        @_loadError
+        <button type="button" class="btn btn-sm btn-outline-danger ms-2" @onclick="LoadFilesAsync">Tentar novamente</button>
+    </div>
+}
+else if (_files.Count == 0)
+{
+    <div class="alert alert-info" role="status">
+        <p class="mb-1">Você ainda não possui arquivos.</p>
+        <p class="mb-0">Envie um arquivo pelo aplicativo móvel para que ele apareça aqui.</p>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Tipo</th>
+                    <th scope="col">Tamanho</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Criado em</th>
+                    <th scope="col">Expira em / restante</th>
+                    <th scope="col">Downloads</th>
+                    <th scope="col">Link público</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var file in _files)
+                {
+                    <tr>
+                        <td>@file.Summary.OriginalFileName</td>
+                        <td>@file.Summary.ContentType</td>
+                        <td>@FormatSize(file.Summary.SizeBytes)</td>
+                        <td><span class="badge @StatusBadgeClass(file.Summary)">@StatusLabel(file.Summary)</span></td>
+                        <td>@FormatDate(file.Summary.CreatedAt)</td>
+                        <td>@RemainingTimeLabel(file.Summary)</td>
+                        <td>@file.Summary.DownloadCount</td>
+                        <td>
+                            <FileLinkCell Summary="file.Summary"
+                                          IsEffectivelyExpired="IsEffectivelyExpired(file.Summary)"
+                                          GeneratedLink="@file.GeneratedLink"
+                                          ShowRegenerateConfirm="file.ShowRegenerateConfirm"
+                                          LinkBusy="file.LinkBusy"
+                                          OnGenerateOrRegenerateClicked="() => OnGenerateOrRegenerateClicked(file)"
+                                          OnConfirmRegenerate="() => GenerateLinkAsync(file)"
+                                          OnCancelRegenerate="() => CancelRegenerate(file)"
+                                          OnCopyLink="CopyLinkAsync" />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="8" class="border-0 pt-0">
+                            <button type="button" class="btn btn-link btn-sm px-0" @onclick="() => ToggleHistoryAsync(file)">
+                                @(file.HistoryExpanded ? "Ocultar histórico" : "Ver histórico de downloads")
+                            </button>
+
+                            @if (file.HistoryExpanded)
+                            {
+                                @if (file.HistoryLoading)
+                                {
+                                    <p class="small text-muted mb-0">Carregando histórico...</p>
+                                }
+                                else if (file.History is { Count: 0 })
+                                {
+                                    <p class="small text-muted mb-0">Nenhum download registrado ainda.</p>
+                                }
+                                else if (file.History is not null)
+                                {
+                                    <ul class="small mb-0">
+                                        @foreach (var entry in file.History)
+                                        {
+                                            <li>@FormatDateTime(entry.DownloadedAt)</li>
+                                        }
+                                    </ul>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private readonly List<FileViewModel> _files = [];
+    private bool _loading = true;
+    private string? _loadError;
+    private Timer? _countdownTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        NotificationService.FileDownloaded += HandleFileDownloaded;
+
+        // The dashboard is the only page in this phase that needs live updates, so it owns
+        // starting the connection; StartAsync no-ops if one is already running (e.g. the user
+        // navigated away and back within the same session). Deliberately not awaited: the file
+        // list must render immediately regardless of how long connecting to the notification
+        // hub takes (or whether it succeeds at all) — StartAsync already catches and logs its
+        // own failures, so this is safe to fire-and-forget.
+        _ = NotificationService.StartAsync();
+
+        await LoadFilesAsync();
+
+        // Countdown text is purely cosmetic (see RemainingTimeLabel) — a periodic re-render is
+        // all it needs, never a network call, so this timer never causes an Api request.
+        _countdownTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadFilesAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        StateHasChanged();
+
+        var result = await ApiClient.GetMyFilesAsync();
+
+        if (!result.IsSuccess)
+        {
+            _loadError = result.Message;
+            _loading = false;
+            return;
+        }
+
+        var previous = _files.ToDictionary(f => f.Summary.FileId, f => (f.HistoryExpanded, f.History));
+
+        _files.Clear();
+        foreach (var summary in result.Value!)
+        {
+            var vm = new FileViewModel { Summary = summary };
+
+            if (previous.TryGetValue(summary.FileId, out var previousState))
+            {
+                vm.HistoryExpanded = previousState.HistoryExpanded;
+                vm.History = previousState.History;
+            }
+
+            _files.Add(vm);
+        }
+
+        _loading = false;
+    }
+
+    private void HandleFileDownloaded(FileDownloadedNotification notification)
+    {
+        InvokeAsync(() =>
+        {
+            var file = _files.SingleOrDefault(f => f.Summary.FileId == notification.FileId);
+            if (file is not null)
+            {
+                file.Summary = file.Summary with { DownloadCount = file.Summary.DownloadCount + 1 };
+
+                if (file.HistoryExpanded)
+                    _ = RefreshHistoryAsync(file);
+            }
+
+            ToastService.ShowSuccess($"Seu arquivo {notification.OriginalFileName} foi baixado.");
+            StateHasChanged();
+        });
+    }
+
+    private async Task ToggleHistoryAsync(FileViewModel file)
+    {
+        file.HistoryExpanded = !file.HistoryExpanded;
+
+        if (file.HistoryExpanded && file.History is null)
+            await RefreshHistoryAsync(file);
+    }
+
+    private async Task RefreshHistoryAsync(FileViewModel file)
+    {
+        file.HistoryLoading = true;
+        StateHasChanged();
+
+        var result = await ApiClient.GetDownloadHistoryAsync(file.Summary.FileId);
+        file.History = result.IsSuccess ? result.Value : file.History;
+        file.HistoryLoading = false;
+        StateHasChanged();
+    }
+
+    private void OnGenerateOrRegenerateClicked(FileViewModel file)
+    {
+        if (file.Summary.HasPublicLink)
+        {
+            // A link may already exist from a previous session, but its plaintext token was
+            // never retained anywhere (only the hash is persisted, per Etapa 4) — so it cannot
+            // be shown again here. Either way (first link or replacing one), confirm first.
+            file.ShowRegenerateConfirm = true;
+            return;
+        }
+
+        _ = GenerateLinkAsync(file);
+    }
+
+    private void CancelRegenerate(FileViewModel file) => file.ShowRegenerateConfirm = false;
+
+    private async Task GenerateLinkAsync(FileViewModel file)
+    {
+        // Every StateHasChanged below is dispatched via InvokeAsync rather than called bare:
+        // this method is reached through FileLinkCell's own EventCallback parameters
+        // (OnConfirmRegenerate/OnGenerateOrRegenerateClicked), which invoke it via a manual,
+        // nested .InvokeAsync() call from within FileLinkCell's own @onclick handler — unlike a
+        // directly-dispatched @onclick on Dashboard's own markup, that path does not guarantee
+        // the continuation after "await ApiClient.GenerateLinkAsync(...)" resumes on the
+        // renderer's dispatcher, so a bare StateHasChanged() here is unreliable.
+        file.ShowRegenerateConfirm = false;
+        file.LinkBusy = true;
+        StateHasChanged();
+
+        var result = await ApiClient.GenerateLinkAsync(file.Summary.FileId);
+
+        file.LinkBusy = false;
+
+        if (!result.IsSuccess)
+        {
+            ToastService.ShowError(result.Message ?? "Não foi possível gerar o link.");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        file.GeneratedLink = result.Value!.PublicUrl;
+        file.Summary = file.Summary with { HasPublicLink = true };
+        ToastService.ShowSuccess("Link gerado.");
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CopyLinkAsync(string link)
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("fileSharingInterop.copyToClipboard", link);
+            ToastService.ShowSuccess("Link copiado.");
+        }
+        catch (JSException)
+        {
+            ToastService.ShowWarning("Não foi possível copiar automaticamente. Selecione e copie o link manualmente.");
+        }
+    }
+
+    // ExpiresAt/Status keep coming from the Api — this only changes display text the instant
+    // the client's own clock crosses ExpiresAt, ahead of the ~15-minute Hangfire cleanup window
+    // (Etapa 6) that eventually flips Status to Expired server-side. Never used to allow/deny
+    // anything — GenerateLinkAsync still calls the real endpoint, which still enforces this
+    // itself regardless of what this method displays.
+    private static bool IsEffectivelyExpired(FileSummaryResponse file) =>
+        file.Status == "Active" && file.ExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow;
+
+    private static string StatusLabel(FileSummaryResponse file) => file.Status switch
+    {
+        "PendingUpload" => "Processando",
+        "Active" when IsEffectivelyExpired(file) => "Expirado",
+        "Active" => "Ativo",
+        "Expired" => "Expirado",
+        _ => file.Status
+    };
+
+    private static string StatusBadgeClass(FileSummaryResponse file) => file.Status switch
+    {
+        "PendingUpload" => "text-bg-secondary",
+        "Active" when IsEffectivelyExpired(file) => "text-bg-danger",
+        "Active" => "text-bg-success",
+        "Expired" => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static string RemainingTimeLabel(FileSummaryResponse file)
+    {
+        // Server-confirmed Expired (Hangfire already ran) reads the same as a still-Active file
+        // whose ExpiresAt the client's own clock has already passed — the countdown's natural
+        // end-state is "Expirado" either way, never a bare "—" once a file has genuinely expired.
+        if (file.Status == "Expired")
+            return "Expirado";
+
+        if (file.Status != "Active" || file.ExpiresAt is not { } expiresAt)
+            return "—";
+
+        var remaining = expiresAt - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+            return "Expirado";
+
+        if (remaining < TimeSpan.FromMinutes(1))
+            return "menos de 1 min restante";
+
+        return remaining.TotalHours >= 1
+            ? $"{(int)remaining.TotalHours}h {remaining.Minutes}min restantes"
+            : $"{remaining.Minutes}min restantes";
+    }
+
+    private static string FormatDate(DateTimeOffset? date) => date?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—";
+    private static string FormatDateTime(DateTimeOffset date) => date.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss");
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double size = bytes;
+        var unitIndex = 0;
+
+        while (size >= 1024 && unitIndex < units.Length - 1)
+        {
+            size /= 1024;
+            unitIndex++;
+        }
+
+        return $"{size:0.#} {units[unitIndex]}";
+    }
+
+    private class FileViewModel
+    {
+        public required FileSummaryResponse Summary { get; set; }
+        public bool HistoryExpanded { get; set; }
+        public IReadOnlyList<DownloadHistoryEntryResponse>? History { get; set; }
+        public bool HistoryLoading { get; set; }
+        public string? GeneratedLink { get; set; }
+        public bool ShowRegenerateConfirm { get; set; }
+        public bool LinkBusy { get; set; }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        NotificationService.FileDownloaded -= HandleFileDownloaded;
+        if (_countdownTimer is not null)
+            await _countdownTimer.DisposeAsync();
+    }
+}

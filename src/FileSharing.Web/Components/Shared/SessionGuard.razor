@@ -1,0 +1,52 @@
+@implements IDisposable
+@inject FileSharingApiClient ApiClient
+@inject AuthTokenProvider TokenProvider
+@inject ApiAuthenticationStateProvider AuthStateProvider
+@inject SignalRNotificationService NotificationService
+@inject ToastService ToastService
+@inject NavigationManager Navigation
+
+@* Renders nothing — mounted once in MainLayout purely to centralize the "any authenticated
+   call came back 401" reaction (Fase 8 requirement: 401 -> session invalid -> logout ->
+   redirect to login), so individual pages/components never need to handle this themselves. *@
+
+@code {
+    // Guards against handling the same session-expiry burst twice — e.g. two authenticated
+    // calls in flight at once (GetMyFilesAsync + GetDownloadHistoryAsync) can both come back
+    // 401 in quick succession, each raising SessionExpired independently.
+    private bool _handled;
+
+    protected override void OnInitialized()
+    {
+        ApiClient.SessionExpired += HandleSessionExpired;
+    }
+
+    private void HandleSessionExpired()
+    {
+        if (_handled)
+            return;
+
+        _handled = true;
+
+        InvokeAsync(async () =>
+        {
+            TokenProvider.Clear();
+            AuthStateProvider.MarkUserAsLoggedOut();
+            await NotificationService.StopAsync();
+            ToastService.ShowWarning("Sua sessão expirou. Faça login novamente.");
+
+            // ToastContainer only lives inside MainLayout — navigating immediately would tear
+            // it down (swapping to AuthLayout for /login) before the toast above ever paints.
+            // A short, deliberate pause lets the user actually see the message first, same
+            // pattern already used by Register.razor's own success message.
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            Navigation.NavigateTo("/login");
+        });
+    }
+
+    public void Dispose()
+    {
+        ApiClient.SessionExpired -= HandleSessionExpired;
+    }
+}

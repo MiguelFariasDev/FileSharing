@@ -1,11 +1,12 @@
 # API
 
-Esta seção documenta os endpoints implementados até a Etapa 7 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real).
-Um Dashboard autenticado e a UI Blazor serão documentados em etapas futuras.
+Esta seção documenta os endpoints implementados até a Etapa 8 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard).
 
 A Etapa 6 (Hangfire + limpeza automática de arquivos expirados) **não adiciona nenhum endpoint HTTP novo** — é um job recorrente em segundo plano, sem superfície de API própria, e deliberadamente sem Dashboard exposto (`/hangfire` não existe como rota nesta etapa; ver `docs/security.md`). Ver `docs/architecture.md` para o funcionamento do job e a relação entre `ExpiresAt` e a limpeza.
 
-A Etapa 7 (SignalR + notificação em tempo real) adiciona um único endpoint novo, não-REST: o Hub abaixo. `GET /api/public/files/{token}/download` (Etapa 5) continua exatamente o mesmo — nenhum campo novo na requisição/resposta, nenhuma mudança de comportamento visível para o downloader.
+A Etapa 7 (SignalR + notificação em tempo real) adicionou um único endpoint novo, não-REST: o Hub abaixo. `GET /api/public/files/{token}/download` (Etapa 5) continua exatamente o mesmo — nenhum campo novo na requisição/resposta, nenhuma mudança de comportamento visível para o downloader.
+
+A Etapa 8 (Blazor Web/Dashboard) adicionou dois endpoints mínimos que faltavam para o dashboard funcionar — `GET /api/files/mine` e `GET /api/files/{id}/downloads`, ambos abaixo — e nenhum outro: nenhum endpoint existente foi alterado, e nenhum endpoint foi duplicado.
 
 ## Hub /hubs/notifications
 
@@ -234,6 +235,57 @@ Cada chamada bem-sucedida gera um **token novo**, aleatório e não relacionado 
 - `401 Unauthorized`: sem JWT válido.
 - `404 Not Found`: arquivo inexistente ou de outro usuário.
 - `409 Conflict`: arquivo ainda não concluído (`PendingUpload`) ou já expirado.
+
+---
+
+## GET /api/files/mine
+
+Adicionado na Etapa 8 para o dashboard Web — lista os arquivos do usuário autenticado. Nenhum endpoint equivalente existia antes; nenhum endpoint duplicado foi criado (a listagem sempre foi feita por este único endpoint desde que passou a existir).
+
+Autenticação: **obrigatória**. Retorna exclusivamente arquivos cujo `UserId` é o do usuário do JWT — determinado sempre pelo claim `sub`, nunca por um parâmetro que o cliente possa manipular. Um usuário jamais recebe arquivos de outro (ver `docs/security.md`).
+
+### Response
+
+- `200 OK`
+  ```json
+  [
+    {
+      "fileId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "originalFileName": "relatorio.pdf",
+      "contentType": "application/pdf",
+      "sizeBytes": 204800,
+      "isFolder": false,
+      "status": "Active",
+      "createdAt": "2026-09-12T10:00:00+00:00",
+      "expiresAt": "2026-09-13T10:00:00+00:00",
+      "downloadCount": 2,
+      "hasPublicLink": true
+    }
+  ]
+  ```
+  `status` é a representação em string de `FileStatus` (`"PendingUpload"`, `"Active"` ou `"Expired"`). `createdAt`/`expiresAt` são `null` enquanto `PendingUpload` (mesma nulabilidade documentada em `docs/database.md`). `hasPublicLink` reflete apenas se `AccessTokenHash` já foi definido (`!= null`) — **nunca** o hash em si, e nunca o token em texto puro (que nem sequer é persistido). Um novo `accessToken` só é obtido chamando `POST /api/files/{id}/link` novamente.
+- `401 Unauthorized`: sem JWT válido.
+
+---
+
+## GET /api/files/{id}/downloads
+
+Adicionado na Etapa 8 para o histórico de downloads do dashboard. Owner-only, no mesmo padrão de `complete`/`link`.
+
+Autenticação: **obrigatória**.
+
+### Response
+
+- `200 OK`
+  ```json
+  [
+    { "downloadedAt": "2026-09-12T15:32:10+00:00" },
+    { "downloadedAt": "2026-09-12T11:04:02+00:00" }
+  ]
+  ```
+  Ordenado do mais recente para o mais antigo. Deliberadamente **não inclui** `ipAddress`/`userAgent` — esses campos existem no banco (`downloads`, Etapa 5) para fins de auditoria, mas não são expostos neste endpoint nesta etapa (ver `docs/security.md`).
+- `401 Unauthorized`: sem JWT válido.
+- `404 Not Found`: arquivo inexistente ou pertence a outro usuário — mesma resposta genérica para ambos os casos.
 
 ---
 

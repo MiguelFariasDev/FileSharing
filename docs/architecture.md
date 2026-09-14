@@ -1,7 +1,7 @@
 # Arquitetura
 
-Documenta as decisões arquiteturais até a Etapa 7 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática, SignalR + notificação em tempo real de downloads).
-Dashboard (autenticado) e a UI/HubConnection do lado do cliente Blazor pertencem a uma etapa futura.
+Documenta as decisões arquiteturais até a Etapa 8 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática, SignalR + notificação em tempo real de downloads, Blazor Web/Dashboard).
+Um Dashboard administrativo, upload pelo Web e novos mecanismos de autenticação pertencem a etapas futuras (ou estão deliberadamente fora de escopo).
 
 ## Camadas (Clean Architecture)
 
@@ -16,10 +16,11 @@ Api
 ```
 
 - **Domain** (`FileSharing.Domain`): entidades (`User`, `File`, `Download`) e regras de negócio puras. Zero dependência de EF Core, ASP.NET Core ou AWS SDK.
-- **Application** (`FileSharing.Application`): DTOs, validators (FluentValidation), serviços de caso de uso (`AuthService`, `FileUploadService`, `FilePublicLinkService`, `FileDownloadService`) e as abstrações que Infrastructure/Api implementam (`IApplicationDbContext`, `IPasswordHasher`, `IJwtTokenGenerator`, `IFileStorageService`, e agora `IFileDownloadNotifier` — Etapa 7). Não conhece `AmazonS3Client`, `Npgsql` ou qualquer tipo do `Microsoft.AspNetCore.*` — inclusive `Microsoft.AspNetCore.RateLimiting` e `Microsoft.AspNetCore.SignalR`, que só são referenciados na Api. `FileDownloadService` recebe `ipAddress`/`userAgent` já como `string` simples: toda a extração desses valores de `HttpContext`/headers acontece na Api (`PublicFilesController`), nunca na Application. O mesmo vale para a notificação: `IFileDownloadNotifier.NotifyDownloadAsync(ownerUserId, notification, ct)` recebe um `Guid` e um DTO simples — a Application nunca vê `IHubContext`, `Hub` ou qualquer tipo do SignalR.
+- **Application** (`FileSharing.Application`): DTOs, validators (FluentValidation), serviços de caso de uso (`AuthService`, `FileUploadService`, `FilePublicLinkService`, `FileDownloadService`, e agora `FileQueryService` — Etapa 8) e as abstrações que Infrastructure/Api implementam (`IApplicationDbContext`, `IPasswordHasher`, `IJwtTokenGenerator`, `IFileStorageService`, e `IFileDownloadNotifier` — Etapa 7). Não conhece `AmazonS3Client`, `Npgsql` ou qualquer tipo do `Microsoft.AspNetCore.*` — inclusive `Microsoft.AspNetCore.RateLimiting` e `Microsoft.AspNetCore.SignalR`, que só são referenciados na Api. `FileDownloadService` recebe `ipAddress`/`userAgent` já como `string` simples: toda a extração desses valores de `HttpContext`/headers acontece na Api (`PublicFilesController`), nunca na Application. O mesmo vale para a notificação: `IFileDownloadNotifier.NotifyDownloadAsync(ownerUserId, notification, ct)` recebe um `Guid` e um DTO simples — a Application nunca vê `IHubContext`, `Hub` ou qualquer tipo do SignalR.
 - **Infrastructure** (`FileSharing.Infrastructure`): implementações concretas — `ApplicationDbContext` (EF Core/PostgreSQL), `PasswordHasher`/`JwtTokenGenerator` (Identity/JWT), `S3FileStorageService` (AWSSDK.S3, agora também com `CreatePresignedDownloadUrlAsync`), e `BackgroundJobs/ExpiredFileCleanupJob` (Hangfire job implementation, Etapa 6).
 - **Api** (`FileSharing.Api`): controllers finos, configuração de DI (pasta `Extensions/`), pipeline HTTP, Swagger, rate limiting, e agora `Hubs/` (`NotificationHub`, `SignalRFileDownloadNotifier`, `SubClaimUserIdProvider` — Etapa 7) (`Program.cs`).
 - **Mobile** (`FileSharing.Mobile`): cliente .NET MAUI (Android). Conversa com a Api via HTTP/JSON; nunca referencia o AWS SDK nem possui credenciais AWS.
+- **Web** (`FileSharing.Web`, Etapa 8): Blazor Server (Interactive Server render mode — já era o modelo do projeto antes desta etapa; não foi migrado para outro). Cliente da Api como qualquer outro — nunca acessa PostgreSQL, EF Core, S3/LocalStack ou Hangfire diretamente; toda comunicação passa por `FileSharingApiClient` (HTTP) e `SignalRNotificationService` (SignalR), ambos em `Services/`. Referencia `FileSharing.Application` apenas para reaproveitar os DTOs de contrato já existentes (`RegisterRequest`, `FileSummaryResponse`, `FileDownloadedNotification` etc.) — nunca `FileSharing.Infrastructure` ou `FileSharing.Api`.
 
 Sem MediatR: cada caso de uso é um serviço de Application chamado diretamente pelo controller (`IAuthService`, `IFileUploadService`, `IFilePublicLinkService`, `IFileDownloadService`), decisão tomada na Etapa 2 e mantida nas etapas seguintes por consistência.
 
@@ -215,6 +216,76 @@ Pontos importantes:
 - **Rate limiting inalterado.** `PublicFilesController` continua com a mesma política `public-files` da Etapa 4/5; o Hub não tem, e não precisa de, uma política de rate limit própria — ele não é uma superfície de adivinhação de token como o link público.
 - **Escalabilidade: funciona em uma única instância; múltiplas instâncias em produção exigirão um backplane.** O SignalR aqui usa o armazenamento de conexões em memória padrão (nenhum backplane Redis/Azure SignalR foi adicionado nesta etapa, conforme pedido). Isso significa que **hoje**, com uma única instância da Api rodando, tudo funciona corretamente — inclusive múltiplas conexões do mesmo usuário. Se uma implantação futura rodar **múltiplas instâncias** da Api atrás de um load balancer (ex.: AWS ECS Fargate com várias tasks), uma conexão SignalR estabelecida com a instância A não é visível pela instância B — um download processado pela instância B não conseguiria notificar um dono cuja conexão está na instância A. Resolver isso exigirá um backplane (ex.: Redis, ou Azure SignalR Service) — uma decisão de infraestrutura de deployment/escala, não uma mudança na segurança do fluxo atual (o isolamento por `Clients.User` continua correto independentemente do backplane escolhido). Ver também `docs/deployment.md`.
 
+## FileSharing.Web — Blazor Server (Etapa 8)
+
+```
+Browser (SignalR circuit do Blazor Server)
+     |
+     v
+FileSharing.Web (Program.cs)
+     |
+     +-- Login.razor / Register.razor --> FileSharingApiClient --> POST /api/auth/{login,register} (Api)
+     |
+     +-- Dashboard.razor -------------> FileSharingApiClient --> GET /api/files/mine
+     |         |                                              --> GET /api/files/{id}/downloads
+     |         |                                              --> POST /api/files/{id}/link
+     |         |
+     |         +-- SignalRNotificationService --> HubConnection --> /hubs/notifications (Api, Etapa 7)
+     |
+     +-- MainLayout.razor (Sair) -----> AuthTokenProvider.Clear() + SignalRNotificationService.StopAsync()
+```
+
+O Web nunca acessa PostgreSQL, EF Core, S3/LocalStack ou Hangfire diretamente — toda comunicação passa pelos contratos HTTP/SignalR já existentes da Api (Etapas 1–7), inalterados por esta etapa, com exceção de dois endpoints mínimos novos (`GET /api/files/mine`, `GET /api/files/{id}/downloads`) que faltavam para o dashboard funcionar — ver `docs/api.md`.
+
+### Por que Blazor Server foi mantido (não migrado)
+
+O projeto já usava Blazor Server (`AddInteractiveServerComponents`/`AddInteractiveServerRenderMode`, template "Blazor Web App" do .NET 8+) antes desta etapa — essa configuração foi verificada em `src/FileSharing.Web/Program.cs` e mantida sem alteração de modelo de hospedagem. Páginas que precisam de interatividade (`Login`, `Register`, `Home`, `Dashboard`) declaram `@rendermode @(new InteractiveServerRenderMode(prerender: false))` explicitamente, desabilitando o pré-render estático — necessário porque o estado de autenticação (`AuthTokenProvider`/`ApiAuthenticationStateProvider`, ambos `Scoped` por circuito) só existe depois que o circuito interativo real é estabelecido; com pré-render habilitado, a primeira passagem estática rodaria com um escopo `Scoped` transitório e vazio, antes de qualquer login.
+
+### Onde e como o JWT é armazenado
+
+O JWT emitido por `POST /api/auth/login` fica **inteiramente em memória, no servidor**, dentro de `AuthTokenProvider` (`Scoped`) — nunca chega ao navegador, nunca é colocado em `localStorage`/`sessionStorage`/cookie, nunca aparece em uma URL. Isso é possível justamente porque a aplicação já é Blazor **Server**: como o C# roda inteiramente no servidor, o token nunca *precisa* atravessar a rede até o navegador, ao contrário de um cliente Blazor WebAssembly (que rodaria no browser e não teria escolha). `ApiAuthenticationStateProvider` guarda apenas o `ClaimsPrincipal` derivado de `GET /api/auth/me` (Id/Email) para alimentar `<AuthorizeView>`/`<AuthorizeRouteView>` — nunca decodifica o JWT localmente para extrair claims (evita adicionar uma dependência de parsing de JWT só para reler dois campos que a Api já expõe por um endpoint testado).
+
+**Trade-off documentado, deliberado:** como não há nenhum armazenamento no navegador, um F5 forçado (recarregamento completo da página) cria um novo circuito Blazor Server — e, com ele, uma nova instância `Scoped` de `AuthTokenProvider`, vazia. Ou seja, **a sessão não sobrevive a um F5 forçado**; o usuário precisa logar novamente. Uma reconexão transitória do circuito (o `ReconnectModal` já existente no template, para uma queda breve de rede) reutiliza o **mesmo** circuito e não perde esse estado. Essa escolha prioriza segurança (superfície de exposição do token reduzida ao mínimo possível) sobre a conveniência de sobreviver a um F5 — dado que nenhuma fase pediu um mecanismo de persistência de sessão no navegador, e introduzir um (cookie, localStorage) seria, por si só, uma escolha de arquitetura de autenticação nova, fora do escopo desta etapa.
+
+### FileSharingApiClient — cliente HTTP centralizado
+
+Único ponto do projeto que fala com a Api. Responsabilidades: anexar `Authorization: Bearer <token>` **somente** em chamadas autenticadas (nunca em `login`/`register`); mapear todo `HttpStatusCode` de erro para um `ApiErrorType` (`Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `TooManyRequests`, `ValidationFailed`, `ServerError`, `Network`) com uma mensagem de usuário genérica — nunca o corpo bruto da resposta (que poderia ser uma página de exceção com stack trace, SQL, erro da AWS etc.); emitir o evento `SessionExpired` em qualquer `401`, tratado uma única vez por `Components/Shared/SessionGuard.razor` (monta em `MainLayout`, faz logout + redireciona para `/login`) — nenhum componente individual precisa saber lidar com sessão expirada.
+
+### Dashboard
+
+`GET /api/files/mine` alimenta a lista; cada linha mostra nome, tipo, tamanho (formatado), status (badge com **texto**, nunca só cor — acessibilidade), data de criação, tempo restante (calculado no cliente a partir de `ExpiresAt`, só para exibição — nunca usado para autorizar nada; ver seção seguinte), quantidade de downloads e a célula de link público (`Components/Shared/FileLinkCell.razor`). Estados tratados explicitamente: carregando, erro (com botão de retentar), vazio ("Você ainda não possui arquivos... envie pelo aplicativo móvel"), sem nenhum botão de upload falso — upload continua sendo responsabilidade exclusiva do Mobile (Etapa 3).
+
+**Tempo restante é só cosmético.** `RemainingTimeLabel`/`IsEffectivelyExpired` comparam `ExpiresAt` contra `DateTimeOffset.UtcNow` **no navegador/servidor Blazor**, só para decidir o texto exibido — nunca chamam a Api para autorizar nada com base nisso. Se o relógio do cliente achar que um arquivo "quase expirado" ainda está ativo, ou vice-versa, a Api continua sendo a única fonte de verdade: `POST /api/files/{id}/link` e `GET /api/public/files/{token}/download` fazem sua própria checagem de `ExpiresAt`/`Status`, independentemente do que o dashboard mostra. Quando o Hangfire (Etapa 6) eventualmente marcar um arquivo como `Expired`, o dashboard só reflete isso na próxima leitura de `GetMyFilesAsync` (carregamento inicial ou clique em "Atualizar") — não há polling para isso, de propósito (ver "Performance" abaixo).
+
+**Link público:** o Web nunca gera token nem hash — `Components/Shared/FileLinkCell.razor` só exibe o que `POST /api/files/{id}/link` (Etapa 4, inalterado) devolve. "Gerar link"/"Gerar novo link" chamam exatamente o mesmo endpoint; a única diferença é que regenerar exige confirmação explícita antes ("Gerar um novo link invalidará o link atual. Deseja continuar?"), porque o token de uma chamada anterior nunca pode ser recuperado de novo (só o hash é persistido). O link retornado (texto puro) fica só na memória do componente naquela sessão — nunca é salvo em nenhum outro lugar pelo Web.
+
+**Histórico de downloads:** `GET /api/files/{id}/downloads` (Etapa 8, novo — ver `docs/api.md`) é carregado sob demanda, ao expandir "Ver histórico de downloads" por arquivo — nunca eagerly para todos os arquivos da lista. Mostra só data/hora; IP e User-Agent (existentes no banco desde a Etapa 5) **não são exibidos** nesta etapa, por decisão deliberada de escopo (ver `docs/security.md`).
+
+### SignalR no cliente Web
+
+`Services/Notifications/SignalRNotificationService` é o único lugar do projeto que conhece `HubConnection` — `Dashboard.razor` só assina o evento `FileDownloaded` (tipado com o mesmo `FileSharing.Application.DTOs.Notifications.FileDownloadedNotification` da Etapa 7, nenhum contrato duplicado) e o evento `StateChanged` (para o indicador discreto de conexão). Conecta a `{Api:BaseUrl}/hubs/notifications` usando o JWT da sessão (`AuthTokenProvider.AccessToken`, lido a cada tentativa de conexão/reconexão, nunca capturado uma única vez) via `AccessTokenProvider` do `HubConnectionBuilder`.
+
+**Reconexão automática, obrigatória por esta etapa:** `.WithAutomaticReconnect([TimeSpan.Zero, 2s, 10s, 30s])` — tenta imediatamente, depois em 2s/10s/30s, e então desiste, ficando em `Disconnected` até uma ação explícita (não existe um laço manual de reconexão). O status (`Conectado`/`Conectando.../Reconectando.../Offline`) aparece como um texto pequeno e discreto na barra superior — nunca um elemento visual dominante.
+
+**Nunca duas conexões simultâneas para o mesmo usuário nesta aba:** `StartAsync` é idempotente — se já existe uma conexão (`_connection is not null`), a chamada não faz nada. `Dashboard.OnInitializedAsync` chama `StartAsync` sem aguardá-lo (`_ = NotificationService.StartAsync();`) deliberadamente — conectar ao Hub de notificações nunca deve atrasar o carregamento da lista de arquivos nem o login, já que `StartAsync` já trata e loga suas próprias falhas internamente (ver Etapa 7).
+
+**Atualização em tempo real, sem recarregar nada.** Ao receber `FileDownloaded`: (1) mostra um toast não bloqueante (`ToastService`/`Components/Shared/ToastContainer.razor` — nunca `alert()` do navegador); (2) incrementa **apenas** o contador de downloads do arquivo afetado (`file.Summary with { DownloadCount = ... + 1 }`), localizado por `FileId` na lista já carregada; (3) se o histórico daquele arquivo específico já estiver expandido na tela, recarrega só o histórico **dele** (`GetDownloadHistoryAsync`, uma chamada); nunca um `GetMyFilesAsync` completo disparado pela notificação. Se o arquivo não estiver na tela (lista desatualizada), nada é forçado.
+
+### Logout
+
+`MainLayout.LogoutAsync`: (1) `SignalRNotificationService.StopAsync()` — encerra a conexão autenticada antes de mais nada, para que ela nunca sobreviva à sessão; (2) `AuthTokenProvider.Clear()`; (3) `ApiAuthenticationStateProvider.MarkUserAsLoggedOut()`; (4) `NavigationManager.NavigateTo("/login")`. Nessa ordem — nunca um logout "só visual" que deixe a conexão SignalR ou o token ainda válidos em memória.
+
+### Autorização de página e o papel do `IAuthenticationService` da Api pipeline
+
+`Dashboard.razor` carrega `[Authorize]`; `Routes.razor` usa `<AuthorizeRouteView>` com `<NotAuthorized><RedirectToLogin /></NotAuthorized>`. Isso cobre dois casos distintos:
+
+- **Circuito interativo já autenticado** (ex.: navegação client-side depois do login): a checagem acontece inteiramente na árvore de componentes Blazor, contra `ApiAuthenticationStateProvider` — nenhuma pergunta à Api nesse momento.
+- **Primeira requisição estática (pré-circuito)** a uma URL protegida (ex.: um usuário não autenticado digita `/dashboard` direto no navegador): `[Authorize]` no componente também anexa metadado de autorização ao *endpoint* HTTP subjacente, que o roteamento do ASP.NET Core aplica via `AuthorizationMiddleware` **mesmo sem uma chamada explícita a `UseAuthorization()`** — e o caminho de falha desse middleware chama `ChallengeAsync`, que exige um `IAuthenticationService`/esquema de autenticação registrado, ou a requisição retorna `500` (bug real, encontrado e corrigido durante a validação manual desta etapa — ver `docs/security.md`). Por isso `Program.cs` registra um esquema de cookie **só para servir de alvo de challenge/redirect** (`LoginPath = "/login"`) — nenhum código deste projeto jamais chama `SignInAsync`, então nenhum cookie de autenticação real chega a ser emitido; a identidade de fato usada em toda a aplicação continua sendo exclusivamente `ApiAuthenticationStateProvider`, alimentada pelo JWT da Api.
+
+### Performance
+
+Nenhum polling periódico de `GET /api/files/mine` — a única forma de atualização automática é o evento `FileDownloaded` via SignalR. Um timer local (`System.Threading.Timer`, 30 em 30 segundos) só re-renderiza o texto de "tempo restante" — nunca faz nenhuma chamada de rede.
+
 ## Pastas → ZIP
 
 Uma pasta é sempre representada por **um único** `File` (`IsFolder = true`, `CompressionType = Zip`), nunca por múltiplos registros — um `File` por arquivo dentro da pasta destruiria a noção de "uma pasta compartilhada".
@@ -265,7 +336,7 @@ src/
     DTOs/{Auth,Files,Notifications}/
     Validators/{Auth,Files}/
     Services/Auth/AuthService.cs
-    Services/Files/{FileUploadService,FilePublicLinkService,FileDownloadService}.cs
+    Services/Files/{FileUploadService,FilePublicLinkService,FileDownloadService,FileQueryService}.cs
   FileSharing.Infrastructure/
     Persistence/{ApplicationDbContext,Configurations,Migrations}/
     Identity/{PasswordHasher,JwtTokenGenerator}.cs
@@ -276,6 +347,14 @@ src/
     Hubs/{NotificationHub,SubClaimUserIdProvider,SignalRFileDownloadNotifier,HubEndpoints}.cs
     Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal}Extensions.cs
     RateLimiterPolicyNames.cs
+  FileSharing.Web/                      # Blazor Server (Etapa 8)
+    Models/{ApiSettings,ApiResult,ApiErrorType,PublicLinkResponse,ToastMessage}.cs
+    Services/{AuthTokenProvider,ApiAuthenticationStateProvider,FileSharingApiClient,ToastService}.cs
+    Services/Notifications/{SignalRNotificationService,NotificationConnectionState}.cs
+    Components/Pages/{Login,Register,Home,Dashboard}.razor
+    Components/Layout/{MainLayout,AuthLayout}.razor
+    Components/Shared/{FileLinkCell,ToastContainer,ConnectionStatus,SessionGuard,RedirectToLogin}.razor
+    wwwroot/js/interop.js               # clipboard only — o JWT nunca chega ao JS
   FileSharing.Mobile/
     Models/UploadableItem.cs
     Services/Api/FileSharingApiClient.cs

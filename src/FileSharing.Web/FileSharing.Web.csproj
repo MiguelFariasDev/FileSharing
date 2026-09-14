@@ -4,6 +4,12 @@
     <ProjectReference Include="..\FileSharing.Application\FileSharing.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Microsoft.AspNetCore.Components.Authorization ships as part of the ASP.NET Core shared
+         framework for a Microsoft.NET.Sdk.Web project — no explicit PackageReference needed. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

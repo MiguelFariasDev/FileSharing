@@ -1,0 +1,103 @@
+@page "/login"
+@layout FileSharing.Web.Components.Layout.AuthLayout
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject FileSharingApiClient ApiClient
+@inject AuthTokenProvider TokenProvider
+@inject ApiAuthenticationStateProvider AuthStateProvider
+@inject SignalRNotificationService NotificationService
+@inject NavigationManager Navigation
+
+<PageTitle>Entrar — FileSharing</PageTitle>
+
+<h1 class="h3 mb-3">FileSharing</h1>
+
+<EditForm Model="_model" OnValidSubmit="HandleLoginAsync">
+    <DataAnnotationsValidator />
+
+    <div class="mb-3">
+        <label for="login-email" class="form-label">Email</label>
+        <InputText id="login-email" class="form-control" @bind-Value="_model.Email" autocomplete="username" aria-describedby="login-email-error" />
+        <ValidationMessage For="() => _model.Email" id="login-email-error" class="text-danger small" />
+    </div>
+
+    <div class="mb-3">
+        <label for="login-password" class="form-label">Senha</label>
+        <InputText id="login-password" type="password" class="form-control" @bind-Value="_model.Password" autocomplete="current-password" aria-describedby="login-password-error" />
+        <ValidationMessage For="() => _model.Password" id="login-password-error" class="text-danger small" />
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger py-2" role="alert">@_errorMessage</div>
+    }
+
+    <button type="submit" class="btn btn-primary w-100" disabled="@_isBusy">
+        @if (_isBusy)
+        {
+            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+        }
+        Entrar
+    </button>
+</EditForm>
+
+<p class="mt-3 text-center mb-0">
+    Não possui conta? <a href="/register">Cadastre-se.</a>
+</p>
+
+@code {
+    private readonly LoginModel _model = new();
+    private string? _errorMessage;
+    private bool _isBusy;
+
+    private async Task HandleLoginAsync()
+    {
+        _errorMessage = null;
+        _isBusy = true;
+
+        try
+        {
+            var loginResult = await ApiClient.LoginAsync(_model.Email, _model.Password);
+            if (!loginResult.IsSuccess)
+            {
+                // Deliberately generic for a credentials failure — never reveal whether the
+                // email exists, matching the Api's own "Credenciais inválidas." for both cases.
+                _errorMessage = loginResult.ErrorType == ApiErrorType.Unauthorized
+                    ? "Email ou senha inválidos."
+                    : loginResult.Message;
+                return;
+            }
+
+            TokenProvider.SetToken(loginResult.Value!.AccessToken, loginResult.Value.ExpiresAt);
+
+            var meResult = await ApiClient.GetMeAsync();
+            if (!meResult.IsSuccess)
+            {
+                _errorMessage = "Não foi possível concluir o login.";
+                TokenProvider.Clear();
+                return;
+            }
+
+            AuthStateProvider.MarkUserAsAuthenticated(meResult.Value!);
+
+            // Not awaited: navigating to the dashboard must never wait on notification hub
+            // connectivity — StartAsync already catches and logs its own failures.
+            _ = NotificationService.StartAsync();
+
+            Navigation.NavigateTo("/dashboard");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private class LoginModel
+    {
+        [Required(ErrorMessage = "Informe seu email.")]
+        [EmailAddress(ErrorMessage = "Informe um email válido.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Informe sua senha.")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

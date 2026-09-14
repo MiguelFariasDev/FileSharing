@@ -18,6 +18,10 @@
     <Routes />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="js/interop.js"></script>
+    <!-- Already vendored for the CSS above — only its navbar-collapse toggle (a plain
+         data-bs-toggle interaction) is used; no other Bootstrap JS component is relied on. -->
+    <script src="@Assets["lib/bootstrap/dist/js/bootstrap.bundle.min.js"]"></script>
 </body>
 
 </html>

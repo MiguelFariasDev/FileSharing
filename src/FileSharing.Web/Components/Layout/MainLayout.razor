@@ -1,23 +1,52 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@inject AuthTokenProvider TokenProvider
+@inject ApiAuthenticationStateProvider AuthStateProvider
+@inject SignalRNotificationService NotificationService
+@inject NavigationManager Navigation
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
+<nav class="navbar navbar-expand-md navbar-dark bg-dark px-3">
+    <a class="navbar-brand" href="/dashboard">FileSharing</a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-nav-collapse"
+            aria-controls="main-nav-collapse" aria-expanded="false" aria-label="Abrir menu de navegação">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="main-nav-collapse">
+        <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+                <NavLink class="nav-link" href="/dashboard">Meus arquivos</NavLink>
+            </li>
+        </ul>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="d-flex align-items-center gap-3 text-light py-2 py-md-0">
+                    <ConnectionStatus />
+                    <span class="small d-none d-sm-inline">@context.User.Identity?.Name</span>
+                    <button type="button" class="btn btn-outline-light btn-sm" @onclick="LogoutAsync">Sair</button>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </div>
+</nav>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+<main class="container py-4">
+    @Body
+</main>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+<ToastContainer />
+<SessionGuard />
 
-<div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
-</div>
+@code {
+    private async Task LogoutAsync()
+    {
+        // Order matters: disconnect the authenticated SignalR connection before/alongside
+        // clearing local auth state, so an authenticated hub connection never outlives the
+        // session it belongs to.
+        await NotificationService.StopAsync();
+        TokenProvider.Clear();
+        AuthStateProvider.MarkUserAsLoggedOut();
+        Navigation.NavigateTo("/login");
+    }
+}

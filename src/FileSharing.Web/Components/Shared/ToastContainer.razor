@@ -1,0 +1,56 @@
+@implements IDisposable
+@inject ToastService ToastService
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080" aria-live="polite" aria-atomic="true">
+    @foreach (var toast in _toasts)
+    {
+        <div class="toast align-items-center border-0 show mb-2 @LevelClass(toast.Level)" role="status">
+            <div class="d-flex">
+                <div class="toast-body">@toast.Text</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" aria-label="Fechar notificação" @onclick="() => Dismiss(toast.Id)"></button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<ToastMessage> _toasts = [];
+
+    protected override void OnInitialized()
+    {
+        ToastService.OnShow += HandleShow;
+    }
+
+    private void HandleShow(ToastMessage toast)
+    {
+        _toasts.Add(toast);
+        InvokeAsync(StateHasChanged);
+
+        _ = AutoDismissAsync(toast.Id);
+    }
+
+    private async Task AutoDismissAsync(Guid id)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        Dismiss(id);
+    }
+
+    private void Dismiss(Guid id)
+    {
+        _toasts.RemoveAll(t => t.Id == id);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string LevelClass(ToastLevel level) => level switch
+    {
+        ToastLevel.Success => "text-bg-success",
+        ToastLevel.Warning => "text-bg-warning",
+        ToastLevel.Error => "text-bg-danger",
+        _ => "text-bg-dark"
+    };
+
+    public void Dispose()
+    {
+        ToastService.OnShow -= HandleShow;
+    }
+}

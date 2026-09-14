@@ -117,9 +117,10 @@ src/
   FileSharing.Mobile/           # Projeto .NET MAUI (Android)
   FileSharing.Shared/           # Contratos/DTOs compartilhados entre Api, Web e Mobile
 tests/
-  FileSharing.Domain.Tests/
-  FileSharing.Application.Tests/
-  FileSharing.Api.IntegrationTests/
+  FileSharing.UnitTests/
+  FileSharing.ApiTests/
+  FileSharing.IntegrationTests/       # Contra PostgreSQL/LocalStack reais
+  FileSharing.Web.Tests/              # Serviços e componentes do Blazor (bUnit)
 docker-compose.yml
 .github/workflows/
 ```
@@ -149,22 +150,34 @@ dotnet user-secrets set "Jwt:SecretKey" "<chave-aleatoria-de-pelo-menos-32-bytes
 # Aplicar as migrações do banco de dados
 ASPNETCORE_ENVIRONMENT=Development dotnet ef database update -p src/FileSharing.Infrastructure -s src/FileSharing.Api
 
-# Rodar a API (usa appsettings.Development.json: Postgres na porta 5433, LocalStack em http://localhost:4566)
+# Rodar a API (usa appsettings.Development.json: Postgres na porta 5433, LocalStack em http://localhost:4566,
+# porta HTTP padrão em desenvolvimento: 5105 — ver src/FileSharing.Api/Properties/launchSettings.json)
 dotnet run --project src/FileSharing.Api
 
-# Rodar o frontend Blazor
+# appsettings.Development.json do Web também é git-ignorado — copie o template (só a URL da Api local, nenhum segredo)
+cp src/FileSharing.Web/appsettings.Development.json.example src/FileSharing.Web/appsettings.Development.json
+
+# Rodar o frontend Blazor (por padrão em http://localhost:5287 — ver launchSettings.json do projeto Web)
 dotnet run --project src/FileSharing.Web
 ```
 
 Para o aplicativo Android, abra `src/FileSharing.Mobile` no Visual Studio Code com a extensão C# Dev Kit e execute em um emulador Android configurado localmente. Veja `docs/architecture.md` para os detalhes do fluxo de upload MAUI → API → S3.
+
+### Frontend Web (Blazor Server)
+
+- **URL da Api:** configurada em `src/FileSharing.Web/appsettings.{Environment}.json`, chave `Api:BaseUrl` (nunca hardcoded em nenhum componente — todo acesso à Api passa por `FileSharingApiClient`, que lê essa configuração uma única vez). Em desenvolvimento local, aponta para `http://localhost:5105` (a Api rodando localmente); em produção, deve apontar para a URL pública da Api implantada.
+- **Autenticação:** o Web consome `POST /api/auth/login` da Api já existente — nenhuma lógica de autenticação é duplicada aqui. O JWT resultante fica em memória, no servidor, associado à conexão Blazor Server do usuário (nunca chega ao navegador/JavaScript, nunca em localStorage) — ver `docs/architecture.md` para os detalhes e o trade-off dessa escolha (a sessão não sobrevive a um F5 forçado no navegador).
+- **Notificações em tempo real:** ao entrar no dashboard, o Web conecta a `{Api:BaseUrl}/hubs/notifications` (o mesmo Hub SignalR autenticado da Etapa 7) usando o JWT da sessão, com reconexão automática (`WithAutomaticReconnect`) e um indicador discreto de status ("Conectado"/"Reconectando..."/"Offline") no topo da tela.
+- **Limitação conhecida:** como já documentado desde a Etapa 7, o SignalR atual funciona corretamente com uma única instância da Api — múltiplas instâncias em produção exigiriam um backplane (Redis ou Azure SignalR), não implementado nesta versão. Ver `docs/architecture.md`/`docs/deployment.md`.
 
 ## Testes
 
 ```bash
 dotnet test tests/FileSharing.UnitTests
 dotnet test tests/FileSharing.ApiTests
+dotnet test tests/FileSharing.Web.Tests
 
-# Requer o LocalStack ativo (docker compose up -d em infrastructure/docker)
+# Requer o PostgreSQL e o LocalStack ativos (docker compose up -d em infrastructure/docker)
 dotnet test tests/FileSharing.IntegrationTests
 ```
 

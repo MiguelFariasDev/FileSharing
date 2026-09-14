@@ -1,0 +1,62 @@
+@* Renders the "link público" column of one dashboard row. A pure presentational component —
+   all Api calls happen in Dashboard.razor; this only raises callbacks. *@
+
+@if (Summary.Status == "PendingUpload")
+{
+    <span>Processando</span>
+}
+else if (Summary.Status == "Expired" || IsEffectivelyExpired)
+{
+    <span>—</span>
+}
+else
+{
+    @if (GeneratedLink is not null)
+    {
+        <div class="d-flex flex-column gap-1 mb-1">
+            <code class="small text-truncate d-inline-block" style="max-width: 220px;">@GeneratedLink</code>
+            <button type="button" class="btn btn-sm btn-outline-primary" aria-label="Copiar link" @onclick="() => OnCopyLink.InvokeAsync(GeneratedLink)">
+                Copiar link
+            </button>
+        </div>
+    }
+
+    @if (ShowRegenerateConfirm)
+    {
+        <div class="small">
+            <p class="mb-1">Gerar um novo link invalidará o link atual. Deseja continuar?</p>
+            <button type="button" class="btn btn-sm btn-danger me-1" disabled="@LinkBusy" @onclick="() => OnConfirmRegenerate.InvokeAsync()">
+                @(LinkBusy ? "Gerando..." : "Sim, gerar novo link")
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@LinkBusy" @onclick="() => OnCancelRegenerate.InvokeAsync()">
+                Cancelar
+            </button>
+        </div>
+    }
+    else
+    {
+        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@LinkBusy" @onclick="() => OnGenerateOrRegenerateClicked.InvokeAsync()">
+            @if (LinkBusy)
+            {
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                <span>Gerando...</span>
+            }
+            else
+            {
+                @(Summary.HasPublicLink ? "Gerar novo link" : "Gerar link")
+            }
+        </button>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public FileSummaryResponse Summary { get; set; } = null!;
+    [Parameter] public bool IsEffectivelyExpired { get; set; }
+    [Parameter] public string? GeneratedLink { get; set; }
+    [Parameter] public bool ShowRegenerateConfirm { get; set; }
+    [Parameter] public bool LinkBusy { get; set; }
+    [Parameter] public EventCallback OnGenerateOrRegenerateClicked { get; set; }
+    [Parameter] public EventCallback OnConfirmRegenerate { get; set; }
+    [Parameter] public EventCallback OnCancelRegenerate { get; set; }
+    [Parameter] public EventCallback<string> OnCopyLink { get; set; }
+}

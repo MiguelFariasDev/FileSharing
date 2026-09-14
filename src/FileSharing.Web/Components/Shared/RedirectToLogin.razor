@@ -1,0 +1,13 @@
+@inject NavigationManager Navigation
+
+@* Used as <AuthorizeRouteView>'s NotAuthorized content (see Routes.razor). Navigating from
+   OnAfterRenderAsync (not synchronously during render) avoids the
+   "NavigateTo called during render" pitfall. *@
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            Navigation.NavigateTo("/login");
+    }
+}

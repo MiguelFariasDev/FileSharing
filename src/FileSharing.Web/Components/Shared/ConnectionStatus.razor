@@ -1,0 +1,42 @@
+@implements IDisposable
+@inject SignalRNotificationService NotificationService
+
+<span class="small @CssClass" title="Status da conexão em tempo real">
+    ● @Label
+</span>
+
+@code {
+    private NotificationConnectionState _state = NotificationConnectionState.Disconnected;
+
+    protected override void OnInitialized()
+    {
+        _state = NotificationService.State;
+        NotificationService.StateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged(NotificationConnectionState state)
+    {
+        _state = state;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string Label => _state switch
+    {
+        NotificationConnectionState.Connected => "Conectado",
+        NotificationConnectionState.Connecting => "Conectando...",
+        NotificationConnectionState.Reconnecting => "Reconectando...",
+        _ => "Offline"
+    };
+
+    private string CssClass => _state switch
+    {
+        NotificationConnectionState.Connected => "text-success",
+        NotificationConnectionState.Connecting or NotificationConnectionState.Reconnecting => "text-warning",
+        _ => "text-secondary"
+    };
+
+    public void Dispose()
+    {
+        NotificationService.StateChanged -= HandleStateChanged;
+    }
+}

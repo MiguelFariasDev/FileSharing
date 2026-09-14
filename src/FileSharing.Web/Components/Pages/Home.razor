@@ -1,7 +1,14 @@
-﻿@page "/"
+@page "/"
+@inject NavigationManager Navigation
 
-<PageTitle>Home</PageTitle>
-
-<h1>Hello, world!</h1>
-
-Welcome to your new app.
+@code {
+    // "/" has no content of its own — /dashboard's own [Authorize] (via AuthorizeRouteView)
+    // already sends an unauthenticated visitor on to /login, so this only ever needs to point
+    // at /dashboard. Deliberately no interactive @rendermode: this redirect doesn't depend on
+    // any circuit/auth state, so it works as a plain, immediate HTTP redirect during static
+    // rendering — no JavaScript/SignalR circuit required, unlike a client-side-only redirect.
+    protected override void OnInitialized()
+    {
+        Navigation.NavigateTo("/dashboard");
+    }
+}
