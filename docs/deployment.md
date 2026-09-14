@@ -40,6 +40,22 @@ Igual ao padrão já estabelecido para `Jwt:SecretKey` e as credenciais AWS (ver
 - **Solução para múltiplas instâncias: um backplane.** Redis (`Microsoft.AspNetCore.SignalR.StackExchangeRedis`) ou o Azure SignalR Service gerenciado são as opções padrão do ecossistema ASP.NET Core para sincronizar mensagens entre instâncias. **Não implementado nesta etapa** — é uma decisão de infraestrutura de deployment/escala a ser tomada quando (e se) a Api passar a rodar com mais de uma instância simultânea, não algo que precisa existir para o funcionamento correto hoje.
 - **Sticky sessions não são necessárias com um backplane**, mas **são necessárias sem um** se o load balancer não garantir afinidade de conexão — sem backplane e sem sticky sessions, uma reconexão do cliente poderia cair em uma instância diferente da que originalmente aceitou a conexão, o que já é tratado pelo protocolo de negociação do SignalR (uma nova conexão é sempre válida), mas o cliente perderia qualquer estado em memória associado à conexão anterior. Sem estado em memória por conexão nesta implementação (o Hub não guarda nada), o impacto prático disso hoje é nulo.
 
+## Health Checks e Observabilidade (Etapa 12)
+
+- **`GET /health/live`** — liveness. Sem dependência de PostgreSQL/S3; um orquestrador (ECS, Kubernetes) deve usar isso para decidir se **reinicia** o processo, nunca a readiness abaixo.
+- **`GET /health/ready`** — readiness (PostgreSQL + S3/LocalStack). Um orquestrador deve usar isso para decidir se **envia tráfego** para esta instância — nunca para decidir reiniciá-la.
+- Nenhum dos dois exige autenticação (`AllowAnonymous()`), nenhum expõe connection string/exceção no corpo (resposta padrão do framework: só `"Healthy"`/`"Unhealthy"`). Ver `docs/architecture.md` para a implementação de cada check.
+- **Configuração equivalente em produção:** o mesmo `IAmazonS3`/`ConnectionStrings:Postgres` já usados pelo restante da aplicação — nenhuma credencial nova, nenhuma configuração própria dos health checks.
+
+### Preparação para observabilidade AWS (ainda não implementada)
+
+Nenhum backend externo (CloudWatch, X-Ray, Grafana) foi configurado nesta etapa — deliberado, ver `docs/security.md`. O que já está pronto para quando essa etapa futura chegar:
+
+- **Logs → CloudWatch Logs**: a aplicação já escreve para `stdout`/`stderr` (console) de forma estruturada; num ambiente ECS Fargate, o driver de log `awslogs` do próprio ECS já encaminha isso para CloudWatch Logs sem nenhuma mudança de código — só configuração da Task Definition.
+- **Métricas → CloudWatch Metrics/EMF**: `AppMetrics` (`System.Diagnostics.Metrics`) já expõe tudo sob o Meter `"FileSharing.Application"`; um exportador (`OpenTelemetry.Exporter.*` ou o formato EMF do CloudWatch) poderia ser ligado a esse Meter existente sem alterar `AppMetrics` nem os pontos de chamada.
+- **Traces → AWS X-Ray**: o ASP.NET Core já emite `Activity`/`DiagnosticSource` para cada requisição automaticamente (nenhum código deste projeto) — um `ActivityListener`/instrumentação X-Ray se conectaria a isso do mesmo jeito que se conectaria a qualquer app ASP.NET Core.
+- **Health checks → ALB/ECS**: `/health/live` e `/health/ready` já existem no formato que um Target Group de Application Load Balancer ou um `healthCheck` de Task Definition do ECS espera (200 = saudável, texto simples).
+
 ## Fora de escopo destas etapas
 
-AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`), backplane Redis/Azure SignalR — nenhum desses foi implementado ou alterado pelas Etapas 6/7. Este documento será expandido quando essas etapas forem implementadas.
+AWS ECS Fargate, AWS RDS de produção, AWS Secrets Manager, Application Load Balancer, GitHub Actions (`api-web-ci.yml`/`mobile-android-ci.yml`), backplane Redis/Azure SignalR, backend externo de observabilidade (CloudWatch/X-Ray/Grafana/Datadog definitivos) — nenhum desses foi implementado ou alterado até a Etapa 12. Este documento será expandido quando essas etapas forem implementadas.

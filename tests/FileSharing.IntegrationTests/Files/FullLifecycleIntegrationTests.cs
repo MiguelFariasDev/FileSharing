@@ -4,6 +4,7 @@ using Amazon.S3;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.DTOs.Notifications;
+using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Entities;
 using FileSharing.Infrastructure.BackgroundJobs;
@@ -77,15 +78,15 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15,
             DownloadUrlExpirationSeconds = 300
         });
-        _storageService = new S3FileStorageService(_s3Client, storageOptions);
+        _storageService = new S3FileStorageService(_s3Client, storageOptions, NullLogger<S3FileStorageService>.Instance);
 
         var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(PostgresConnectionString)
             .Options;
         _dbContext = new ApplicationDbContext(dbOptions);
 
-        _linkService = new FilePublicLinkService(_dbContext);
-        _downloadService = new FileDownloadService(_dbContext, _storageService, new NoOpFileDownloadNotifier());
+        _linkService = new FilePublicLinkService(_dbContext, new AppMetrics(), NullLogger<FilePublicLinkService>.Instance);
+        _downloadService = new FileDownloadService(_dbContext, _storageService, new NoOpFileDownloadNotifier(), new AppMetrics(), NullLogger<FileDownloadService>.Instance);
     }
 
     public Task InitializeAsync() => Task.CompletedTask;
@@ -229,6 +230,7 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
             _dbContext,
             _storageService,
             Options.Create(new ExpirationCleanupOptions { BatchSize = 100 }),
+            new AppMetrics(),
             NullLogger<ExpiredFileCleanupJob>.Instance);
 
         var cleanupResult = await cleanupJob.ExecuteAsync();

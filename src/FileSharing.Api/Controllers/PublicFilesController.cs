@@ -1,5 +1,6 @@
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Entities;
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -9,10 +10,17 @@ namespace FileSharing.Api.Controllers;
 /// Public, unauthenticated surface for resolving a shared link. No [Authorize] here — the
 /// whole point is that whoever holds the token (not necessarily a registered user) can use it.
 /// Rate-limited to slow down brute-force token guessing (see Program.cs).
+///
+/// [HttpLogging(HttpLoggingFields.None)] opts this entire controller out of the built-in
+/// request-logging middleware (Program.cs) — its own route path ({token}) always contains the
+/// public share token itself, which must never be written to a log under any circumstance.
+/// The outcome of each call (never the token) is instead logged by FilePublicLinkService/
+/// FileDownloadService, which already have the richer Application-layer context anyway.
 /// </summary>
 [ApiController]
 [Route("api/public/files")]
 [EnableRateLimiting(RateLimiterPolicyNames.PublicFiles)]
+[HttpLogging(HttpLoggingFields.None)]
 public class PublicFilesController : ControllerBase
 {
     private readonly IFilePublicLinkService _filePublicLinkService;

@@ -323,6 +323,62 @@ Trocar LocalStack ↔ AWS real é só configuração (`AWS:ServiceURL` presente 
 
 Multipart upload não foi implementado nesta etapa (fora de escopo), mas a abstração (`IFileStorageService`) não impede adicioná-lo depois — seria um novo método (`CreateMultipartUploadAsync`/`CompletePartAsync`) na mesma interface, sem alterar Application ou Api.
 
+## Observability & Diagnostics (Etapa 12)
+
+Política de dados sensíveis nos logs: ver `docs/security.md`. Aqui só a mecânica.
+
+### Correlation ID
+
+```
+CorrelationIdMiddleware (Api/Middleware/, primeiro middleware da pipeline)
+  → lê X-Correlation-ID do request (reaproveita se válido: ≤128 chars, [A-Za-z0-9_-], único valor)
+  → gera Guid.NewGuid() caso contrário
+  → HttpContext.Items["CorrelationId"]        (lido via HttpContext.GetCorrelationId())
+  → Response.Headers["X-Correlation-ID"]      (TryAdd — antes de next(), sobrevive a exceção)
+  → _logger.BeginScope("CorrelationId: {CorrelationId}", id)   (acompanha todo log da requisição)
+```
+
+`GlobalExceptionHandler` reanexa o header explicitamente porque `ExceptionHandlerMiddleware` reseta a resposta (limpando headers já setados) antes de invocá-lo — `HttpContext.Items` sobrevive a esse reset, o header por si só não. `AddProblemDetails(options => options.CustomizeProblemDetails = ...)` (`Program.cs`) grava `correlationId` em **todo** `ProblemDetails`, não só nos de exceção não tratada.
+
+### Logging estruturado
+
+`Microsoft.Extensions.Logging` (já usado desde etapas anteriores — nada de Serilog nesta etapa). Eventos relevantes, todos com propriedades estruturadas (`{FileId}`, `{UserId}`, nunca concatenação de string), nunca dado sensível (ver `docs/security.md`):
+
+```
+AuthService            : registro/login bem-sucedido ou rejeitado (Information/Warning)
+FileUploadService      : upload iniciado/concluído/rejeitado, com duração
+FilePublicLinkService  : link gerado/rejeitado; acesso público concedido/negado
+FileDownloadService    : download concedido/negado, com duração
+S3FileStorageService   : Debug apenas — detalhe de baixo nível, nunca duplica o que a
+                          camada Application já logou em Information/Warning
+ExpiredFileCleanupJob  : início, candidatos encontrados, resultado final (já existia desde a
+                          Etapa 6; only a métrica foi adicionada nesta etapa)
+SignalRFileDownloadNotifier : notificação enviada/falhou, com duração (já existia desde a
+                          Etapa 7; duração e métrica adicionadas nesta etapa)
+GlobalExceptionHandler : exceção não tratada, com CorrelationId
+```
+
+Console local formatado via `Logging:Console:FormatterName: "simple"` + `FormatterOptions.IncludeScopes: true` (`appsettings.json`) — sem essas duas chaves explícitas, o provedor de console usa um modo legado que ignora silenciosamente `IncludeScopes`, então o scope do correlation id nunca aparece (achado real desta etapa).
+
+### Health Checks
+
+```
+GET /health/live    tag "live"   — "self" apenas, sem dependência externa (nunca falha por Postgres/S3 estarem fora)
+GET /health/ready   tag "ready"  — PostgresHealthCheck + S3HealthCheck
+```
+
+- `PostgresHealthCheck`: uma query real e barata (`Users.Select(u => u.Id).Take(1)`) via `IApplicationDbContext` — não `Database.CanConnectAsync()`, porque esse método se comporta de forma diferente entre o provider Npgsql (produção) e o InMemory (`FileSharing.ApiTests`); uma query real funciona identicamente nos dois.
+- `S3HealthCheck`: `IFileStorageService.GetObjectMetadataAsync` contra uma chave que nunca existirá (`__healthcheck__/probe`) — um "não encontrado" limpo já prova que o storage está alcançável; nunca `PutObject`/`DeleteObject`, nunca upload real. Passa pela mesma abstração que `FileUploadService`/`FileDownloadService` já usam, então herda automaticamente o endpoint certo (LocalStack em Development, S3 real em produção) sem nenhuma configuração própria — e, em `FileSharing.ApiTests`, herda o mock já existente (nunca uma chamada de rede real durante os testes).
+- Resposta: o texto padrão do framework (`"Healthy"`/`"Unhealthy"`) — nenhum `ResponseWriter` customizado que serializaria exceção/connection string na resposta.
+
+### Métricas
+
+`FileSharing.Application.Observability.AppMetrics` (`System.Diagnostics.Metrics`, nativo do .NET desde a 6, nenhum pacote NuGet novo). Contadores (`uploads.initiated/completed`, `downloads`, `public_links.generated/accessed`, `auth.attempts`, `files.expired`, `storage.objects_deleted`, `cleanup.failures`, `signalr.notifications`) e histogramas de duração (upload/download/cleanup), todos sob o Meter `"FileSharing.Application"`. Tags limitadas a `operation`/`result` — nunca `UserId`/`FileId`/token/IP como tag (cardinalidade alta seria o oposto do objetivo). Observável hoje via `dotnet-counters monitor --process-id <pid> FileSharing.Application`, sem exportador configurado — ver `docs/security.md` para a decisão de não adicionar o SDK do OpenTelemetry nesta etapa.
+
+### Request logging
+
+`Microsoft.AspNetCore.HttpLogging` (built-in do framework) — método, path, protocolo, status, duração. Nunca headers (`Authorization`/`Cookie` inclusos) nem corpo de request/response. `PublicFilesController` está inteiramente fora dele (`[HttpLogging(HttpLoggingFields.None)]`) porque sua própria rota contém o token público — ver `docs/security.md`. Liga/desliga via `Observability:EnableRequestLogging` (padrão `true`).
+
 ## Diagrama de pastas do backend
 
 ```
@@ -333,6 +389,7 @@ src/
   FileSharing.Application/
     Abstractions/{Persistence,Security,Storage,Notifications}/
     Common/{Result,FileTypePolicy,RandomTokenGenerator,AccessTokenHasher}.cs
+    Observability/AppMetrics.cs                                      # Etapa 12
     DTOs/{Auth,Files,Notifications}/
     Validators/{Auth,Files}/
     Services/Auth/AuthService.cs
@@ -345,7 +402,10 @@ src/
   FileSharing.Api/
     Controllers/{AuthController,FilesController,PublicFilesController}.cs
     Hubs/{NotificationHub,SubClaimUserIdProvider,SignalRFileDownloadNotifier,HubEndpoints}.cs
-    Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal}Extensions.cs
+    Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal,Observability}Extensions.cs
+    Middleware/{GlobalExceptionHandler,CorrelationIdMiddleware}.cs   # Etapa 10/12
+    HealthChecks/{PostgresHealthCheck,S3HealthCheck}.cs              # Etapa 12
+    Options/ObservabilityOptions.cs                                  # Etapa 12
     RateLimiterPolicyNames.cs
   FileSharing.Web/                      # Blazor Server (Etapa 8)
     Models/{ApiSettings,ApiResult,ApiErrorType,PublicLinkResponse,ToastMessage}.cs

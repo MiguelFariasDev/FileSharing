@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.DTOs.Notifications;
+using FileSharing.Application.Observability;
 using Microsoft.AspNetCore.SignalR;
 
 namespace FileSharing.Api.Hubs;
@@ -24,11 +26,13 @@ public class SignalRFileDownloadNotifier : IFileDownloadNotifier
     public const string FileDownloadedEvent = "FileDownloaded";
 
     private readonly IHubContext<NotificationHub> _hubContext;
+    private readonly AppMetrics _metrics;
     private readonly ILogger<SignalRFileDownloadNotifier> _logger;
 
-    public SignalRFileDownloadNotifier(IHubContext<NotificationHub> hubContext, ILogger<SignalRFileDownloadNotifier> logger)
+    public SignalRFileDownloadNotifier(IHubContext<NotificationHub> hubContext, AppMetrics metrics, ILogger<SignalRFileDownloadNotifier> logger)
     {
         _hubContext = hubContext;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -37,24 +41,30 @@ public class SignalRFileDownloadNotifier : IFileDownloadNotifier
         FileDownloadedNotification notification,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
+
         try
         {
             await _hubContext.Clients.User(ownerUserId.ToString())
                 .SendAsync(FileDownloadedEvent, notification, cancellationToken);
 
             _logger.LogInformation(
-                "Download notification sent for FileId {FileId} to UserId {UserId}",
-                notification.FileId, ownerUserId);
+                "Download notification sent. FileId={FileId} UserId={UserId} DurationMs={DurationMs}",
+                notification.FileId, ownerUserId, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.SignalRNotification(success: true);
         }
         catch (Exception ex)
         {
-            // Best-effort: never let a SignalR/transport failure propagate out of here. Logged
-            // with FileId/UserId only for correlation — never a token, hash, or presigned URL,
-            // none of which this type ever sees in the first place.
+            // Best-effort: never let a SignalR/transport failure propagate out of here (the
+            // download itself has already succeeded by the time this is called — see
+            // FileDownloadService). Logged with FileId/UserId only for correlation — never a
+            // token, hash, connection id, or presigned URL, none of which this type ever sees
+            // in the first place.
             _logger.LogWarning(
                 ex,
-                "Failed to send download notification for FileId {FileId} to UserId {UserId}",
-                notification.FileId, ownerUserId);
+                "Failed to send download notification. FileId={FileId} UserId={UserId} DurationMs={DurationMs}",
+                notification.FileId, ownerUserId, stopwatch.Elapsed.TotalMilliseconds);
+            _metrics.SignalRNotification(success: false);
         }
     }
 }

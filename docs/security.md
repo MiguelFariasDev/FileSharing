@@ -1,6 +1,6 @@
 # Segurança
 
-Documentação da segurança implementada até a Etapa 10 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening).
+Documentação da segurança implementada até a Etapa 12 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening + Observability & Diagnostics).
 
 ---
 
@@ -158,6 +158,41 @@ Etapa de auditoria e reforço — não uma nova funcionalidade. A imensa maioria
 - **CORS: nenhuma mudança, porque nenhuma era necessária.** Nem Api nem Web nunca tiveram `AddCors`/`UseCors`/`AllowAnyOrigin` configurados — e isso está correto por construção: o Web é Blazor **Server** (o `HttpClient` que chama a Api roda no servidor, nunca no navegador) e o Mobile é um app nativo (CORS é um mecanismo de navegador, não se aplica a `HttpClient` do MAUI). Não existe hoje nenhum chamador browser-side cross-origin legítimo da Api. Documentado aqui para que uma etapa futura que precise disso não presuma que "CORS ausente" é um bug — e, se algum dia for necessário, a orientação já dada pelo prompt desta etapa continua valendo: origens explícitas, nunca `AllowAnyOrigin` combinado com `AllowCredentials`.
 - **Nenhum segredo real encontrado versionado no Git.** Verificado `git log` para `appsettings.Development.json` (Api e Web) — nunca foram commitados; `.gitignore` já os cobre desde antes desta etapa. Os únicos valores em `appsettings.Development.json.example`/`docker-compose.yml` são credenciais de desenvolvimento local inertes (`postgres`/`postgres` do container Postgres local, `test`/`test` do LocalStack) — nenhuma delas é uma credencial real ou reutilizável fora da máquina do desenvolvedor.
 - **`dotnet list package --vulnerable --include-transitive`: nenhum pacote vulnerável** em nenhum dos dez projetos da solução — os dois pins já aplicados em etapas anteriores (`Newtonsoft.Json` via Hangfire, `AngleSharp` via bunit, ambos em `Directory.Packages.props`) continuam cobrindo os únicos CVEs transitivos já identificados; nenhuma atualização adicional foi necessária.
+
+## Observability & Diagnostics (Etapa 12)
+
+Etapa de observabilidade — não uma nova funcionalidade de negócio. Ver `docs/architecture.md`/`docs/deployment.md` para os detalhes técnicos de cada mecanismo; esta seção documenta especificamente a **política de dados sensíveis** aplicada.
+
+### O que nunca aparece em log, em nenhuma camada
+
+Revisão explícita de todo o código de logging adicionado nesta etapa (`AuthService`, `FileUploadService`, `FileDownloadService`, `FilePublicLinkService`, `S3FileStorageService`, `ExpiredFileCleanupJob`, `SignalRFileDownloadNotifier`, `GlobalExceptionHandler`, `CorrelationIdMiddleware`) e do HTTP request-logging automático (`Microsoft.AspNetCore.HttpLogging`, built-in do framework):
+
+- **Nunca**: JWT, header `Authorization`, senha, `AccessToken` (público), `AccessTokenHash`, presigned URL (upload ou download), `StorageKey` (nem completo, nem truncado — política uniforme e sem exceção, mais estrita que o mínimo pedido para não haver uma regra "às vezes truncado, às vezes não" para lembrar), connection string, credenciais AWS, cookies, conteúdo de arquivo, email (em log — só `UserId`), IP/User-Agent do downloader (existem apenas na tabela `downloads`, nunca em log).
+- **Sempre que fizer sentido**: `FileId`, `UserId`, `Status`, tamanhos, durações, contagens, tipo de exceção (nunca sua mensagem completa fora do log do servidor).
+- **Provado, não só declarado**: `LogSanitizationTests.FullFlow_NeverLogsTheJwtPasswordAccessTokenOrPresignedUrl` (`FileSharing.ApiTests`) roda o fluxo completo (registro → login → upload → link → acesso público → download) contra um `ILoggerProvider` de teste que captura literalmente toda mensagem renderizada, e falha se o JWT, a senha, o token público, ou qualquer um dos dois presigned URLs (upload/download) aparecerem em qualquer log — inclusive checando o fragmento `X-Amz-Signature` isoladamente, já que ele por si só identificaria uma presigned URL mesmo que truncada.
+- **`PublicFilesController` (`GET /api/public/files/{token}` e `.../download`) está totalmente fora do request-logging automático** (`[HttpLogging(HttpLoggingFields.None)]`) — a própria rota desses dois endpoints contém o token no path (`/api/public/files/{token}`), e o middleware de request-logging do ASP.NET Core não tem como saber que `{token}` deveria ser redigido; a única forma segura de garantir que o path completo (com o token) nunca vá para o log é desligar esse logging automático inteiramente para esse controller. O resultado de cada chamada (nunca o token) continua sendo logado explicitamente por `FilePublicLinkService`/`FileDownloadService`, que já têm o contexto certo (`FileId`) para isso.
+- **Query string nunca incluída no request-logging.** `HttpLoggingFields.RequestProperties` (usado em `Program.cs`) não inclui `RequestQuery` — verificado empiricamente contra os valores reais do enum antes de configurar, não assumido — o que importa especificamente porque o fallback de SignalR sobre query string (`?access_token=...`, Etapa 7) nunca deveria aparecer em nenhum log de requisição.
+
+### Correlation ID
+
+- Header `X-Correlation-ID`: reaproveitado do cliente quando presente e válido (≤128 caracteres, apenas `[A-Za-z0-9_-]`, um único valor — múltiplos valores repetidos são tratados como ambíguos), gerado (`Guid.NewGuid`) caso contrário. Nunca aceita um valor que possa conter caractere de controle/delimitador — evita que um cliente injete algo que quebre a formatação de um log ou de um header subsequente.
+- Sempre devolvido no header da resposta — inclusive quando a requisição termina em exceção não tratada (`CorrelationIdMiddleware` é o primeiro middleware da pipeline; `GlobalExceptionHandler` reanexa o header explicitamente porque `UseExceptionHandler`/`ExceptionHandlerMiddleware` reseta a resposta, incluindo headers já definidos, antes de invocar o handler — achado real desta etapa, coberto por `ExceptionHandlingTests`).
+- Disponível a toda a aplicação via `HttpContext.Items`/`HttpContext.GetCorrelationId()` e como logging scope (`_logger.BeginScope("CorrelationId: {CorrelationId}", ...)`) — qualquer log emitido durante aquela requisição carrega o id automaticamente para um provider que renderize scopes (console local: `Logging:Console:FormatterName: "simple"` + `FormatterOptions:IncludeScopes: true`, `appsettings.json`).
+- Também anexado a toda resposta `ProblemDetails` (não só erros não tratados) via `AddProblemDetails(options => options.CustomizeProblemDetails = ...)` — um `404`/`409` comum de um controller também carrega `correlationId` no corpo.
+- Nunca deriva de, ou contém, um token de autenticação — é gerado independentemente de qualquer credencial.
+
+### Detalhes de exceção — nunca em produção, opcional só localmente
+
+`Observability:EnableDetailedErrors` (padrão `false` em todo `appsettings.json` versionado) controla se `GlobalExceptionHandler` inclui `exception.Message` (nunca o stack trace) no campo `Detail` do `ProblemDetails`. Continua `false` sempre em qualquer ambiente hospedado; existe só como conveniência opt-in de desenvolvedor local (via User Secrets/variável de ambiente, nunca em arquivo versionado).
+
+### Ausência deliberada de um backend externo de observabilidade
+
+Avaliado adicionar o SDK do OpenTelemetry (`OpenTelemetry.Extensions.Hosting` + instrumentação de ASP.NET Core/HttpClient/EF Core). Decisão: **não adicionado nesta etapa**, e a razão concreta (não "porque sim"):
+
+- `OpenTelemetry.Instrumentation.AspNetCore`/`.Http` (1.18.0) são estáveis e resolveram sem conflito em uma prova de conceito isolada contra .NET 10 — mas `OpenTelemetry.Instrumentation.EntityFrameworkCore` só existe como **prerelease beta** (`1.12.0-beta.2`) no momento desta etapa; depender de um pacote beta para um projeto que até aqui pinou deliberadamente até dependências transitivas vulneráveis (`Directory.Packages.props`, Etapas 6/8) contradiria essa mesma disciplina.
+- O enunciado desta etapa já autoriza explicitamente essa escolha quando "criar complexidade desnecessária ou conflitos de versão", e não pede nenhum backend (Jaeger/Grafana/Datadog/X-Ray) para receber os dados agora — só que a aplicação fique **pronta**.
+- Em vez disso, a base do próprio .NET (`System.Diagnostics.Metrics.Meter`/`Counter`/`Histogram` — zero pacotes NuGet novos, parte do BCL desde o .NET 6) cobre a seção de métricas (`FileSharing.Application.Observability.AppMetrics`), e o ASP.NET Core já emite `System.Diagnostics.Activity` para cada requisição automaticamente, sem nenhum código deste projeto. Isso é **exatamente** o que um `MeterListener`/`ActivityListener` do OpenTelemetry SDK consumiria mais tarde — `AppMetrics` já expõe seu `Meter` publicamente sob o nome `"FileSharing.Application"` justamente para que uma etapa futura possa ligar `.AddMeter("FileSharing.Application")` a um `MeterProvider` real sem alterar uma linha desta classe.
+- Hoje, os contadores/histogramas já são observáveis localmente via `dotnet-counters monitor --process-id <pid> FileSharing.Application`, sem nenhuma configuração adicional.
 
 ### Limitação conhecida do LocalStack Community (dev only)
 

@@ -2,10 +2,12 @@ using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
 using FileSharing.Application.DTOs.Notifications;
+using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Enums;
 using FileSharing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace FileSharing.UnitTests.Application.Files;
@@ -24,7 +26,7 @@ public class FileDownloadServiceTests : IDisposable
             .Options;
 
         _dbContext = new ApplicationDbContext(options);
-        _sut = new FileDownloadService(_dbContext, _storageMock.Object, _notifierMock.Object);
+        _sut = new FileDownloadService(_dbContext, _storageMock.Object, _notifierMock.Object, new AppMetrics(), NullLogger<FileDownloadService>.Instance);
     }
 
     public void Dispose() => _dbContext.Dispose();

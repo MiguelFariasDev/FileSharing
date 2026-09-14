@@ -1,7 +1,9 @@
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Common;
 using FileSharing.Application.DTOs.Files;
+using FileSharing.Application.Observability;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace FileSharing.Application.Services.Files;
 
@@ -12,10 +14,14 @@ public class FilePublicLinkService : IFilePublicLinkService
     private const string FileExpiredError = "O arquivo expirou.";
 
     private readonly IApplicationDbContext _dbContext;
+    private readonly AppMetrics _metrics;
+    private readonly ILogger<FilePublicLinkService> _logger;
 
-    public FilePublicLinkService(IApplicationDbContext dbContext)
+    public FilePublicLinkService(IApplicationDbContext dbContext, AppMetrics metrics, ILogger<FilePublicLinkService> logger)
     {
         _dbContext = dbContext;
+        _metrics = metrics;
+        _logger = logger;
     }
 
     public async Task<GenerateLinkOutcome> GenerateLinkAsync(
@@ -28,21 +34,34 @@ public class FilePublicLinkService : IFilePublicLinkService
         // Same generic error for "does not exist" and "belongs to someone else" — never
         // reveal to a caller whether a given file id belongs to another user.
         if (file is null || file.UserId != userId)
+        {
+            _logger.LogWarning("Generate link rejected: file not found or not owned by caller. FileId={FileId} UserId={UserId}", fileId, userId);
             return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.NotFound, FileNotFoundError);
+        }
 
         if (!file.IsActive)
+        {
+            _logger.LogWarning("Generate link rejected: file not active. FileId={FileId} Status={Status}", file.Id, file.Status);
             return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.Conflict, FileNotReadyError);
+        }
 
         var now = DateTimeOffset.UtcNow;
         if (file.IsExpired(now))
+        {
+            _logger.LogWarning("Generate link rejected: file already expired. FileId={FileId}", file.Id);
             return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.Conflict, FileExpiredError);
+        }
 
         // A fresh token every call — regenerating invalidates whatever link was issued before,
         // since only the hash is kept and the old plaintext can never be recovered anyway.
+        // Never logged: neither the plaintext token nor its hash, here or anywhere else.
         var accessToken = RandomTokenGenerator.Generate();
         file.AssignAccessToken(AccessTokenHasher.Hash(accessToken), now);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Public link generated. FileId={FileId} UserId={UserId}", file.Id, userId);
+        _metrics.LinkGenerated();
 
         return GenerateLinkOutcome.Success(new GenerateLinkResponse(file.Id, accessToken));
     }
@@ -57,7 +76,16 @@ public class FilePublicLinkService : IFilePublicLinkService
             .SingleOrDefaultAsync(f => f.AccessTokenHash == accessTokenHash, cancellationToken);
 
         if (file is null || !file.IsActive || file.IsExpired())
+        {
+            // Deliberately never logs the token or its hash, and never a FileId when file is
+            // null (there is nothing legitimate to correlate an unknown-token attempt to).
+            _logger.LogInformation("Public file access denied: token unavailable or file not active.");
+            _metrics.PublicLinkAccessed(success: false);
             return PublicFileAccessOutcome.NotAvailable();
+        }
+
+        _logger.LogInformation("Public file accessed. FileId={FileId}", file.Id);
+        _metrics.PublicLinkAccessed(success: true);
 
         return PublicFileAccessOutcome.Success(new PublicFileAccessResponse(
             file.Id,

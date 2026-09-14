@@ -1,11 +1,14 @@
+using System.Diagnostics;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
 using FileSharing.Application.DTOs.Files;
 using FileSharing.Application.DTOs.Notifications;
+using FileSharing.Application.Observability;
 using FileSharing.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace FileSharing.Application.Services.Files;
 
@@ -14,15 +17,21 @@ public class FileDownloadService : IFileDownloadService
     private readonly IApplicationDbContext _dbContext;
     private readonly IFileStorageService _fileStorageService;
     private readonly IFileDownloadNotifier _fileDownloadNotifier;
+    private readonly AppMetrics _metrics;
+    private readonly ILogger<FileDownloadService> _logger;
 
     public FileDownloadService(
         IApplicationDbContext dbContext,
         IFileStorageService fileStorageService,
-        IFileDownloadNotifier fileDownloadNotifier)
+        IFileDownloadNotifier fileDownloadNotifier,
+        AppMetrics metrics,
+        ILogger<FileDownloadService> logger)
     {
         _dbContext = dbContext;
         _fileStorageService = fileStorageService;
         _fileDownloadNotifier = fileDownloadNotifier;
+        _metrics = metrics;
+        _logger = logger;
     }
 
     public async Task<DownloadFileOutcome> DownloadAsync(
@@ -31,6 +40,7 @@ public class FileDownloadService : IFileDownloadService
         string userAgent,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
         var accessTokenHash = AccessTokenHasher.Hash(accessToken);
 
         var file = await _dbContext.Files
@@ -40,12 +50,21 @@ public class FileDownloadService : IFileDownloadService
         // wrong status (still PendingUpload, or Expired), time-based expiry checked directly
         // against ExpiresAt (never relying on a cleanup job to have flipped Status), and a
         // missing storage object. None of these are distinguishable from one another below.
+        // Never logged: the token/hash, the caller's IP/User-Agent (see docs/security.md).
         if (file is null || !file.IsActive || file.IsExpired())
+        {
+            _logger.LogInformation("Public download denied: token unavailable or file not active.");
+            _metrics.Download(success: false, stopwatch.Elapsed.TotalMilliseconds);
             return DownloadFileOutcome.NotAvailable();
+        }
 
         var objectExists = await _fileStorageService.ObjectExistsAsync(file.StorageKey, cancellationToken);
         if (!objectExists)
+        {
+            _logger.LogWarning("Public download denied: object missing from storage. FileId={FileId}", file.Id);
+            _metrics.Download(success: false, stopwatch.Elapsed.TotalMilliseconds);
             return DownloadFileOutcome.NotAvailable();
+        }
 
         // "Download" is recorded here as "an authorized presigned URL was issued to the
         // caller" — not "the client finished transferring the bytes". Once the URL leaves
@@ -67,9 +86,9 @@ public class FileDownloadService : IFileDownloadService
         // SignalR outage (or any other notifier failure) must never turn an already-persisted
         // Download + already-issued presigned URL into a failed response. The notifier
         // implementation is expected to handle/log its own failures (see
-        // IFileDownloadNotifier), but this catch is a deliberate second safety net in case a
-        // future/alternate implementation doesn't honor that — this exact guarantee is the
-        // single most important requirement of this integration.
+        // IFileDownloadNotifier/SignalRFileDownloadNotifier), but this catch is a deliberate
+        // second safety net in case a future/alternate implementation doesn't honor that — this
+        // exact guarantee is the single most important requirement of this integration.
         try
         {
             await _fileDownloadNotifier.NotifyDownloadAsync(
@@ -77,10 +96,17 @@ public class FileDownloadService : IFileDownloadService
                 new FileDownloadedNotification(file.Id, file.OriginalFileName, download.DownloadedAt),
                 cancellationToken);
         }
-        catch
+        catch (Exception ex)
         {
-            // Swallowed deliberately — see comment above.
+            // Reachable only if a notifier implementation fails without handling its own
+            // errors — SignalRFileDownloadNotifier already logs (and records a metric for) its
+            // own failures, so this is a defensive last resort, not the primary log line for a
+            // SignalR failure.
+            _logger.LogWarning(ex, "Download notifier threw unexpectedly. FileId={FileId}", file.Id);
         }
+
+        _logger.LogInformation("Public download completed. FileId={FileId} UserId={UserId}", file.Id, file.UserId);
+        _metrics.Download(success: true, stopwatch.Elapsed.TotalMilliseconds);
 
         return DownloadFileOutcome.Success(new DownloadUrlResponse(presigned.Url, presigned.ExpiresAt));
     }

@@ -9,6 +9,13 @@
     <ProjectReference Include="..\FileSharing.Domain\FileSharing.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Lets FileSharing.UnitTests use AppMetrics' internal Meter-injecting constructor (see
+         Observability/AppMetrics.cs) so tests can attach a MeterListener to a test-owned Meter
+         instead of the process-wide default one every other AppMetrics instance shares. -->
+    <InternalsVisibleTo Include="FileSharing.UnitTests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

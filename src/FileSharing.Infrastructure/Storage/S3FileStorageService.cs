@@ -1,19 +1,29 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using FileSharing.Application.Abstractions.Storage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FileSharing.Infrastructure.Storage;
 
+/// <summary>
+/// Logging here is deliberately Debug-level and never includes a StorageKey — the higher-level
+/// Application services (FileUploadService, FileDownloadService, ExpiredFileCleanupJob) already
+/// log each operation's outcome at Information/Warning with the meaningful identifier (FileId),
+/// so this layer's own logs exist purely as low-level, dev-time detail for diagnosing this
+/// specific S3 call — never a duplicate of what the caller already recorded.
+/// </summary>
 public class S3FileStorageService : IFileStorageService
 {
     private readonly IAmazonS3 _s3Client;
     private readonly FileStorageOptions _options;
+    private readonly ILogger<S3FileStorageService> _logger;
 
-    public S3FileStorageService(IAmazonS3 s3Client, IOptions<FileStorageOptions> options)
+    public S3FileStorageService(IAmazonS3 s3Client, IOptions<FileStorageOptions> options, ILogger<S3FileStorageService> logger)
     {
         _s3Client = s3Client;
         _options = options.Value;
+        _logger = logger;
     }
 
     public Task<PresignedUploadUrl> CreatePresignedUploadUrlAsync(
@@ -45,6 +55,9 @@ public class S3FileStorageService : IFileStorageService
         // cancellation point exists to honor cancellationToken here.
         var url = _s3Client.GetPreSignedURL(request);
 
+        // Never the URL itself (it carries the StorageKey plus AWS signature parameters).
+        _logger.LogDebug("Presigned upload URL created. ExpiresAt={ExpiresAt}", expiresAt);
+
         return Task.FromResult(new PresignedUploadUrl(url, new DateTimeOffset(expiresAt, TimeSpan.Zero)));
     }
 
@@ -72,6 +85,9 @@ public class S3FileStorageService : IFileStorageService
         // cancellation point exists to honor cancellationToken here.
         var url = _s3Client.GetPreSignedURL(request);
 
+        // Never the URL itself (it carries the StorageKey plus AWS signature parameters).
+        _logger.LogDebug("Presigned download URL created. ExpiresAt={ExpiresAt}", expiresAt);
+
         return Task.FromResult(new PresignedDownloadUrl(url, new DateTimeOffset(expiresAt, TimeSpan.Zero)));
     }
 
@@ -86,10 +102,12 @@ public class S3FileStorageService : IFileStorageService
                 new GetObjectMetadataRequest { BucketName = _options.BucketName, Key = storageKey },
                 cancellationToken);
 
+            _logger.LogDebug("Object metadata retrieved. Found=true");
             return new StorageObjectMetadata(response.ContentLength, response.Headers.ContentType);
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            _logger.LogDebug("Object metadata retrieved. Found=false");
             return null;
         }
     }
@@ -99,5 +117,7 @@ public class S3FileStorageService : IFileStorageService
         await _s3Client.DeleteObjectAsync(
             new DeleteObjectRequest { BucketName = _options.BucketName, Key = storageKey },
             cancellationToken);
+
+        _logger.LogDebug("Storage object delete requested.");
     }
 }

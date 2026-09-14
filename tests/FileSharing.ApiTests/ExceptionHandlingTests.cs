@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using FileSharing.Api.Middleware;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.DTOs.Auth;
 using FileSharing.Application.DTOs.Files;
@@ -58,6 +60,7 @@ public class ExceptionHandlingTests : IClassFixture<CustomWebApplicationFactory>
 
         using var completeRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/files/{initiated.FileId}/complete");
         completeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        completeRequest.Headers.Add(CorrelationIdMiddleware.HeaderName, "exception-flow-correlation-id");
         var response = await _client.SendAsync(completeRequest);
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
@@ -68,6 +71,15 @@ public class ExceptionHandlingTests : IClassFixture<CustomWebApplicationFactory>
         Assert.DoesNotContain("InvalidOperationException", body);
         Assert.DoesNotContain("at FileSharing.", body); // a .NET stack trace frame
         Assert.DoesNotContain("simulated storage outage", body);
+
+        // The correlation id must survive an unhandled exception both as a response header
+        // (CorrelationIdMiddleware, set before the exception ever occurs) and inside the
+        // ProblemDetails body itself (the CustomizeProblemDetails callback, Program.cs) — so a
+        // caller reporting "I got a 500" always has something to hand back for a log lookup.
+        Assert.Equal("exception-flow-correlation-id", response.Headers.GetValues(CorrelationIdMiddleware.HeaderName).Single());
+
+        using var problemDetails = JsonDocument.Parse(body);
+        Assert.Equal("exception-flow-correlation-id", problemDetails.RootElement.GetProperty("correlationId").GetString());
     }
 
     [Fact]

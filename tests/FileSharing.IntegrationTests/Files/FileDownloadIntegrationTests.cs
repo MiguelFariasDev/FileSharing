@@ -4,11 +4,13 @@ using Amazon.S3;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.DTOs.Notifications;
+using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Entities;
 using FileSharing.Infrastructure.Persistence;
 using FileSharing.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using CompressionType = FileSharing.Domain.Enums.CompressionType;
 using File = FileSharing.Domain.Entities.File;
@@ -93,15 +95,15 @@ public class FileDownloadIntegrationTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15,
             DownloadUrlExpirationSeconds = 300
         });
-        _storageService = new S3FileStorageService(_s3Client, storageOptions);
+        _storageService = new S3FileStorageService(_s3Client, storageOptions, NullLogger<S3FileStorageService>.Instance);
 
         var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(PostgresConnectionString)
             .Options;
         _dbContext = new ApplicationDbContext(dbOptions);
 
-        _linkService = new FilePublicLinkService(_dbContext);
-        _downloadService = new FileDownloadService(_dbContext, _storageService, new NoOpFileDownloadNotifier());
+        _linkService = new FilePublicLinkService(_dbContext, new AppMetrics(), NullLogger<FilePublicLinkService>.Instance);
+        _downloadService = new FileDownloadService(_dbContext, _storageService, new NoOpFileDownloadNotifier(), new AppMetrics(), NullLogger<FileDownloadService>.Instance);
     }
 
     public async Task InitializeAsync()

@@ -1,5 +1,6 @@
 using System.Reflection;
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.Observability;
 using FileSharing.Domain.Enums;
 using FileSharing.Infrastructure.BackgroundJobs;
 using FileSharing.Infrastructure.Persistence;
@@ -35,7 +36,7 @@ public class ExpiredFileCleanupJobTests : IDisposable
     public void Dispose() => _dbContext.Dispose();
 
     private ExpiredFileCleanupJob CreateSut() =>
-        new(_dbContext, _storageMock.Object, Options.Create(_options), NullLogger<ExpiredFileCleanupJob>.Instance);
+        new(_dbContext, _storageMock.Object, Options.Create(_options), new AppMetrics(), NullLogger<ExpiredFileCleanupJob>.Instance);
 
     private async Task<File> SeedFileAsync(FileStatus status, DateTimeOffset? completedAt = null)
     {

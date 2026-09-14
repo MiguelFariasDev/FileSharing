@@ -1,8 +1,10 @@
 using FileSharing.Application.Common;
+using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Enums;
 using FileSharing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FileSharing.UnitTests.Application.Files;
 
@@ -18,7 +20,7 @@ public class FilePublicLinkServiceTests : IDisposable
             .Options;
 
         _dbContext = new ApplicationDbContext(options);
-        _sut = new FilePublicLinkService(_dbContext);
+        _sut = new FilePublicLinkService(_dbContext, new AppMetrics(), NullLogger<FilePublicLinkService>.Instance);
     }
 
     public void Dispose() => _dbContext.Dispose();

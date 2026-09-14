@@ -1,9 +1,11 @@
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.DTOs.Files;
+using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Enums;
 using FileSharing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace FileSharing.UnitTests.Application.Files;
@@ -21,7 +23,7 @@ public class FileUploadServiceTests : IDisposable
             .Options;
 
         _dbContext = new ApplicationDbContext(options);
-        _sut = new FileUploadService(_dbContext, _storageMock.Object);
+        _sut = new FileUploadService(_dbContext, _storageMock.Object, new AppMetrics(), NullLogger<FileUploadService>.Instance);
     }
 
     public void Dispose() => _dbContext.Dispose();

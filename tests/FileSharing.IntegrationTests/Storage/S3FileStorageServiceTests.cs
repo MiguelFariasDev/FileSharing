@@ -2,6 +2,7 @@ using Amazon;
 using Amazon.S3;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Infrastructure.Storage;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace FileSharing.IntegrationTests.Storage;
@@ -52,7 +53,7 @@ public class S3FileStorageServiceTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15
         });
 
-        _sut = new S3FileStorageService(_s3Client, options);
+        _sut = new S3FileStorageService(_s3Client, options, NullLogger<S3FileStorageService>.Instance);
     }
 
     public Task InitializeAsync() => Task.CompletedTask;

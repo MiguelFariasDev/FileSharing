@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using Amazon;
 using Amazon.S3;
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.Observability;
 using FileSharing.Infrastructure.BackgroundJobs;
 using FileSharing.Infrastructure.Persistence;
 using FileSharing.Infrastructure.Storage;
@@ -68,7 +69,7 @@ public class ExpiredFileCleanupJobIntegrationTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15,
             DownloadUrlExpirationSeconds = 300
         });
-        _storageService = new S3FileStorageService(_s3Client, storageOptions);
+        _storageService = new S3FileStorageService(_s3Client, storageOptions, NullLogger<S3FileStorageService>.Instance);
 
         var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(PostgresConnectionString)
@@ -97,7 +98,7 @@ public class ExpiredFileCleanupJobIntegrationTests : IAsyncLifetime
     }
 
     private ExpiredFileCleanupJob CreateSut(int batchSize = 100) =>
-        new(_dbContext, _storageService, Options.Create(new ExpirationCleanupOptions { BatchSize = batchSize }), NullLogger<ExpiredFileCleanupJob>.Instance);
+        new(_dbContext, _storageService, Options.Create(new ExpirationCleanupOptions { BatchSize = batchSize }), new AppMetrics(), NullLogger<ExpiredFileCleanupJob>.Instance);
 
     private async Task<File> SeedActiveFileAsync(DateTimeOffset completedAtUtc, bool putRealObject)
     {
@@ -202,6 +203,7 @@ public class ExpiredFileCleanupJobIntegrationTests : IAsyncLifetime
                 new ApplicationDbContext(dbOptions),
                 _storageService,
                 Options.Create(new ExpirationCleanupOptions { BatchSize = 100 }),
+                new AppMetrics(),
                 NullLogger<ExpiredFileCleanupJob>.Instance);
         }
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.Observability;
 using FileSharing.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,17 +14,20 @@ public class ExpiredFileCleanupJob : IExpiredFileCleanupJob
     private readonly IApplicationDbContext _dbContext;
     private readonly IFileStorageService _fileStorageService;
     private readonly ExpirationCleanupOptions _options;
+    private readonly AppMetrics _metrics;
     private readonly ILogger<ExpiredFileCleanupJob> _logger;
 
     public ExpiredFileCleanupJob(
         IApplicationDbContext dbContext,
         IFileStorageService fileStorageService,
         IOptions<ExpirationCleanupOptions> options,
+        AppMetrics metrics,
         ILogger<ExpiredFileCleanupJob> logger)
     {
         _dbContext = dbContext;
         _fileStorageService = fileStorageService;
         _options = options.Value;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -77,6 +81,7 @@ public class ExpiredFileCleanupJob : IExpiredFileCleanupJob
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
                 expired++;
+                _metrics.StorageObjectDeleted();
             }
             catch (Exception ex)
             {
@@ -88,6 +93,7 @@ public class ExpiredFileCleanupJob : IExpiredFileCleanupJob
                 // the rest of the batch; it simply remains a candidate for the next run.
                 failed++;
                 _logger.LogError(ex, "Failed to expire file {FileId}; it remains a candidate for a future run.", file.Id);
+                _metrics.CleanupFailure();
             }
         }
 
@@ -96,6 +102,9 @@ public class ExpiredFileCleanupJob : IExpiredFileCleanupJob
         _logger.LogInformation(
             "Expired file cleanup finished in {ElapsedMilliseconds}ms: {Expired} expired, {Failed} failed, {CandidateCount} candidate(s) considered.",
             stopwatch.ElapsedMilliseconds, expired, failed, candidates.Count);
+
+        _metrics.FilesExpired(expired);
+        _metrics.CleanupCompleted(stopwatch.Elapsed.TotalMilliseconds);
 
         return new ExpiredFileCleanupResult(candidates.Count, expired, failed);
     }
