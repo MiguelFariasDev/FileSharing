@@ -107,6 +107,24 @@ public class FileSharingApiClient
         return await ReadResultAsync<PublicLinkResponse>(response, cancellationToken);
     }
 
+    /// <summary>
+    /// Step 1 of the upload flow (see Services/S3UploadHttpClient remarks for step 2) — mirrors
+    /// FileSharing.Mobile.Core's FileUploadService: this call never sends the file's bytes, only
+    /// metadata, and gets back a presigned PUT URL the caller must send the content to directly.
+    /// </summary>
+    public async Task<ApiResult<InitiateUploadResponse>> InitiateUploadAsync(InitiateUploadRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, "api/files/upload", request, authenticated: true, cancellationToken);
+        return await ReadResultAsync<InitiateUploadResponse>(response, cancellationToken);
+    }
+
+    /// <summary>Step 3 of the upload flow — called only after the PUT to the presigned URL (step 2) already succeeded.</summary>
+    public async Task<ApiResult<CompleteUploadResponse>> CompleteUploadAsync(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post, $"api/files/{fileId}/complete", body: null, authenticated: true, cancellationToken);
+        return await ReadResultAsync<CompleteUploadResponse>(response, cancellationToken);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body, bool authenticated, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(method, url);

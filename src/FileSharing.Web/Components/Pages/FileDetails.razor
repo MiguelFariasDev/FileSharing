@@ -1,0 +1,149 @@
+@page "/files/{FileId:guid}"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject FileSharingApiClient ApiClient
+@inject ToastService ToastService
+@inject IJSRuntime JsRuntime
+
+<PageTitle>Detalhes do arquivo — FileSharing</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Carregando...</p>
+}
+else if (_file is null)
+{
+    <ErrorState Kind="ErrorStateKind.NotFound"
+                Title="Arquivo não encontrado"
+                Message="Este arquivo não existe ou não pertence à sua conta."
+                ActionText="Voltar para meus arquivos"
+                ActionHref="/dashboard" />
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3 mb-0 text-truncate">@_file.OriginalFileName</h1>
+        <a href="/dashboard" class="btn btn-outline-secondary btn-sm flex-shrink-0 ms-2">Voltar</a>
+    </div>
+
+    @if (_isExpired)
+    {
+        <ErrorState Kind="ErrorStateKind.Expired"
+                    Title="Arquivo expirado"
+                    Message="Este arquivo não está mais disponível para download." />
+    }
+
+    <dl class="row">
+        <dt class="col-sm-3">Tipo</dt>
+        <dd class="col-sm-9">@_file.ContentType</dd>
+
+        <dt class="col-sm-3">Tamanho</dt>
+        <dd class="col-sm-9">@FileDisplayFormatting.FormatSize(_file.SizeBytes)</dd>
+
+        <dt class="col-sm-3">Status</dt>
+        <dd class="col-sm-9"><span class="badge @FileDisplayFormatting.StatusBadgeClass(_file)">@FileDisplayFormatting.StatusLabel(_file)</span></dd>
+
+        <dt class="col-sm-3">Criado em</dt>
+        <dd class="col-sm-9">@FileDisplayFormatting.FormatDate(_file.CreatedAt)</dd>
+
+        <dt class="col-sm-3">Expira em</dt>
+        <dd class="col-sm-9">@FileDisplayFormatting.RemainingTimeLabel(_file)</dd>
+
+        <dt class="col-sm-3">Downloads</dt>
+        <dd class="col-sm-9">@_file.DownloadCount</dd>
+    </dl>
+
+    @if (!_isExpired)
+    {
+        <h2 class="h6">Link público</h2>
+        <FileLinkCell Summary="_file"
+                      IsEffectivelyExpired="false"
+                      GeneratedLink="@_generatedLink"
+                      ShowRegenerateConfirm="_showRegenerateConfirm"
+                      LinkBusy="_linkBusy"
+                      OnGenerateOrRegenerateClicked="OnGenerateOrRegenerateClicked"
+                      OnConfirmRegenerate="GenerateLinkAsync"
+                      OnCancelRegenerate="() => _showRegenerateConfirm = false"
+                      OnCopyLink="CopyLinkAsync" />
+    }
+
+    <p class="mt-4 mb-0">
+        <a href="@($"/files/{FileId}/history")">Ver histórico de downloads</a>
+    </p>
+}
+
+@code {
+    [Parameter] public Guid FileId { get; set; }
+
+    private FileSummaryResponse? _file;
+    private bool _loading = true;
+    private string? _generatedLink;
+    private bool _showRegenerateConfirm;
+    private bool _linkBusy;
+
+    private bool _isExpired => _file is not null && (_file.Status == "Expired" || FileDisplayFormatting.IsEffectivelyExpired(_file));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _generatedLink = null;
+        _showRegenerateConfirm = false;
+        StateHasChanged();
+
+        // No single-file GET endpoint exists (FilesController only exposes "mine"/list) — the
+        // list call already enforces ownership server-side, so finding the row client-side here
+        // is exactly as safe as a dedicated endpoint would be, without adding new Api surface
+        // for a navigation-only requirement.
+        var result = await ApiClient.GetMyFilesAsync();
+        _file = result.IsSuccess ? result.Value!.SingleOrDefault(f => f.FileId == FileId) : null;
+
+        _loading = false;
+    }
+
+    private void OnGenerateOrRegenerateClicked()
+    {
+        if (_file!.HasPublicLink)
+        {
+            _showRegenerateConfirm = true;
+            return;
+        }
+
+        _ = GenerateLinkAsync();
+    }
+
+    private async Task GenerateLinkAsync()
+    {
+        _showRegenerateConfirm = false;
+        _linkBusy = true;
+        StateHasChanged();
+
+        var result = await ApiClient.GenerateLinkAsync(FileId);
+
+        _linkBusy = false;
+
+        if (!result.IsSuccess)
+        {
+            ToastService.ShowError(result.Message ?? "Não foi possível gerar o link.");
+            StateHasChanged();
+            return;
+        }
+
+        _generatedLink = result.Value!.PublicUrl;
+        _file = _file! with { HasPublicLink = true };
+        ToastService.ShowSuccess("Link gerado.");
+        StateHasChanged();
+    }
+
+    private async Task CopyLinkAsync(string link)
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("fileSharingInterop.copyToClipboard", link);
+            ToastService.ShowSuccess("Link copiado.");
+        }
+        catch (JSException)
+        {
+            ToastService.ShowWarning("Não foi possível copiar automaticamente. Selecione e copie o link manualmente.");
+        }
+    }
+}

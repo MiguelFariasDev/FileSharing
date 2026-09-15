@@ -1,0 +1,43 @@
+@* Reusable, full-body error state — Unauthorized/Forbidden/NotFound/Expired/RateLimited/generic
+   all render through this one component (see docs/navigation-flows.md "Error States") instead
+   of a dedicated page per code, since every one of them is really just {message + one useful
+   action}. Unauthorized/Forbidden aren't reached as a rendered state in this app today (401 goes
+   through SessionGuard's redirect, and no route currently returns 403 — see AuthorizationErrorCode
+   remarks in docs/api-errors.md) — the Kind values still exist so a future page can use this
+   component consistently rather than inventing its own alert markup. *@
+
+<div class="alert @AlertClass py-3" role="@Role">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <h2 class="h5">@Title</h2>
+    }
+    <p class="mb-0 @(ActionText is not null ? "mb-2" : null)">@Message</p>
+    @if (ActionText is not null && ActionHref is not null)
+    {
+        <a href="@ActionHref" class="btn btn-sm @ActionButtonClass">@ActionText</a>
+    }
+</div>
+
+@code {
+    [Parameter] public string Message { get; set; } = string.Empty;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? ActionText { get; set; }
+    [Parameter] public string? ActionHref { get; set; }
+    [Parameter] public ErrorStateKind Kind { get; set; } = ErrorStateKind.Generic;
+
+    private string Role => Kind is ErrorStateKind.NotFound or ErrorStateKind.Expired ? "status" : "alert";
+
+    private string AlertClass => Kind switch
+    {
+        ErrorStateKind.NotFound or ErrorStateKind.Expired => "alert-warning",
+        ErrorStateKind.RateLimited => "alert-info",
+        _ => "alert-danger"
+    };
+
+    private string ActionButtonClass => Kind switch
+    {
+        ErrorStateKind.NotFound or ErrorStateKind.Expired => "btn-outline-dark",
+        ErrorStateKind.RateLimited => "btn-outline-secondary",
+        _ => "btn-outline-danger"
+    };
+}

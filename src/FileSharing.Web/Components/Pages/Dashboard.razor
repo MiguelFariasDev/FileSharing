@@ -11,9 +11,12 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="h3 mb-0">Meus arquivos</h1>
-    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="LoadFilesAsync" disabled="@_loading">
-        Atualizar
-    </button>
+    <div class="d-flex gap-2">
+        <a href="/upload" class="btn btn-primary btn-sm">Enviar arquivo</a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="LoadFilesAsync" disabled="@_loading">
+            Atualizar
+        </button>
+    </div>
 </div>
 
 @if (_loading)
@@ -31,7 +34,7 @@ else if (_files.Count == 0)
 {
     <div class="alert alert-info" role="status">
         <p class="mb-1">Você ainda não possui arquivos.</p>
-        <p class="mb-0">Envie um arquivo pelo aplicativo móvel para que ele apareça aqui.</p>
+        <p class="mb-0"><a href="/upload">Envie um arquivo</a> pelo navegador ou pelo aplicativo móvel para que ele apareça aqui.</p>
     </div>
 }
 else
@@ -48,6 +51,7 @@ else
                     <th scope="col">Expira em / restante</th>
                     <th scope="col">Downloads</th>
                     <th scope="col">Link público</th>
+                    <th scope="col"></th>
                 </tr>
             </thead>
             <tbody>
@@ -56,14 +60,14 @@ else
                     <tr>
                         <td>@file.Summary.OriginalFileName</td>
                         <td>@file.Summary.ContentType</td>
-                        <td>@FormatSize(file.Summary.SizeBytes)</td>
-                        <td><span class="badge @StatusBadgeClass(file.Summary)">@StatusLabel(file.Summary)</span></td>
-                        <td>@FormatDate(file.Summary.CreatedAt)</td>
-                        <td>@RemainingTimeLabel(file.Summary)</td>
+                        <td>@FileDisplayFormatting.FormatSize(file.Summary.SizeBytes)</td>
+                        <td><span class="badge @FileDisplayFormatting.StatusBadgeClass(file.Summary)">@FileDisplayFormatting.StatusLabel(file.Summary)</span></td>
+                        <td>@FileDisplayFormatting.FormatDate(file.Summary.CreatedAt)</td>
+                        <td>@FileDisplayFormatting.RemainingTimeLabel(file.Summary)</td>
                         <td>@file.Summary.DownloadCount</td>
                         <td>
                             <FileLinkCell Summary="file.Summary"
-                                          IsEffectivelyExpired="IsEffectivelyExpired(file.Summary)"
+                                          IsEffectivelyExpired="FileDisplayFormatting.IsEffectivelyExpired(file.Summary)"
                                           GeneratedLink="@file.GeneratedLink"
                                           ShowRegenerateConfirm="file.ShowRegenerateConfirm"
                                           LinkBusy="file.LinkBusy"
@@ -72,9 +76,12 @@ else
                                           OnCancelRegenerate="() => CancelRegenerate(file)"
                                           OnCopyLink="CopyLinkAsync" />
                         </td>
+                        <td>
+                            <a href="@($"/files/{file.Summary.FileId}")" class="btn btn-sm btn-outline-secondary">Detalhes</a>
+                        </td>
                     </tr>
                     <tr>
-                        <td colspan="8" class="border-0 pt-0">
+                        <td colspan="9" class="border-0 pt-0">
                             <button type="button" class="btn btn-link btn-sm px-0" @onclick="() => ToggleHistoryAsync(file)">
                                 @(file.HistoryExpanded ? "Ocultar histórico" : "Ver histórico de downloads")
                             </button>
@@ -94,7 +101,7 @@ else
                                     <ul class="small mb-0">
                                         @foreach (var entry in file.History)
                                         {
-                                            <li>@FormatDateTime(entry.DownloadedAt)</li>
+                                            <li>@FileDisplayFormatting.FormatDateTime(entry.DownloadedAt)</li>
                                         }
                                     </ul>
                                 }
@@ -261,73 +268,6 @@ else
         {
             ToastService.ShowWarning("Não foi possível copiar automaticamente. Selecione e copie o link manualmente.");
         }
-    }
-
-    // ExpiresAt/Status keep coming from the Api — this only changes display text the instant
-    // the client's own clock crosses ExpiresAt, ahead of the ~15-minute Hangfire cleanup window
-    // (Etapa 6) that eventually flips Status to Expired server-side. Never used to allow/deny
-    // anything — GenerateLinkAsync still calls the real endpoint, which still enforces this
-    // itself regardless of what this method displays.
-    private static bool IsEffectivelyExpired(FileSummaryResponse file) =>
-        file.Status == "Active" && file.ExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow;
-
-    private static string StatusLabel(FileSummaryResponse file) => file.Status switch
-    {
-        "PendingUpload" => "Processando",
-        "Active" when IsEffectivelyExpired(file) => "Expirado",
-        "Active" => "Ativo",
-        "Expired" => "Expirado",
-        _ => file.Status
-    };
-
-    private static string StatusBadgeClass(FileSummaryResponse file) => file.Status switch
-    {
-        "PendingUpload" => "text-bg-secondary",
-        "Active" when IsEffectivelyExpired(file) => "text-bg-danger",
-        "Active" => "text-bg-success",
-        "Expired" => "text-bg-danger",
-        _ => "text-bg-secondary"
-    };
-
-    private static string RemainingTimeLabel(FileSummaryResponse file)
-    {
-        // Server-confirmed Expired (Hangfire already ran) reads the same as a still-Active file
-        // whose ExpiresAt the client's own clock has already passed — the countdown's natural
-        // end-state is "Expirado" either way, never a bare "—" once a file has genuinely expired.
-        if (file.Status == "Expired")
-            return "Expirado";
-
-        if (file.Status != "Active" || file.ExpiresAt is not { } expiresAt)
-            return "—";
-
-        var remaining = expiresAt - DateTimeOffset.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-            return "Expirado";
-
-        if (remaining < TimeSpan.FromMinutes(1))
-            return "menos de 1 min restante";
-
-        return remaining.TotalHours >= 1
-            ? $"{(int)remaining.TotalHours}h {remaining.Minutes}min restantes"
-            : $"{remaining.Minutes}min restantes";
-    }
-
-    private static string FormatDate(DateTimeOffset? date) => date?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—";
-    private static string FormatDateTime(DateTimeOffset date) => date.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss");
-
-    private static string FormatSize(long bytes)
-    {
-        string[] units = ["B", "KB", "MB", "GB"];
-        double size = bytes;
-        var unitIndex = 0;
-
-        while (size >= 1024 && unitIndex < units.Length - 1)
-        {
-            size /= 1024;
-            unitIndex++;
-        }
-
-        return $"{size:0.#} {units[unitIndex]}";
     }
 
     private class FileViewModel

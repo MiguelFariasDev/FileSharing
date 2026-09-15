@@ -1,0 +1,98 @@
+@page "/files/{FileId:guid}/history"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject FileSharingApiClient ApiClient
+
+<PageTitle>Histórico de downloads — FileSharing</PageTitle>
+
+@if (_loading)
+{
+    <p role="status">Carregando...</p>
+}
+else if (_fileName is null)
+{
+    <ErrorState Kind="ErrorStateKind.NotFound"
+                Title="Arquivo não encontrado"
+                Message="Este arquivo não existe ou não pertence à sua conta."
+                ActionText="Voltar para meus arquivos"
+                ActionHref="/dashboard" />
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3 mb-0 text-truncate">Histórico de downloads — @_fileName</h1>
+        <a href="@($"/files/{FileId}")" class="btn btn-outline-secondary btn-sm flex-shrink-0 ms-2">Voltar</a>
+    </div>
+
+    @if (_loadError is not null)
+    {
+        <div class="alert alert-danger" role="alert">
+            @_loadError
+            <button type="button" class="btn btn-sm btn-outline-danger ms-2" @onclick="LoadHistoryAsync">Tentar novamente</button>
+        </div>
+    }
+    else if (_history is { Count: 0 })
+    {
+        <p class="text-muted" role="status">Nenhum download registrado ainda.</p>
+    }
+    else if (_history is not null)
+    {
+        <p class="text-muted small">
+            Por política de privacidade, endereço IP e user-agent do downloader nunca são expostos a este cliente — apenas a data/hora de cada download.
+        </p>
+        <ul class="list-group">
+            @foreach (var entry in _history)
+            {
+                <li class="list-group-item">@FileDisplayFormatting.FormatDateTime(entry.DownloadedAt)</li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter] public Guid FileId { get; set; }
+
+    private string? _fileName;
+    private bool _loading = true;
+    private string? _loadError;
+    private IReadOnlyList<DownloadHistoryEntryResponse>? _history;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        _history = null;
+        StateHasChanged();
+
+        // Same ownership-by-list-membership approach as FileDetails.razor — no dedicated
+        // single-file endpoint exists, and GetMyFilesAsync already enforces ownership.
+        var filesResult = await ApiClient.GetMyFilesAsync();
+        var file = filesResult.IsSuccess ? filesResult.Value!.SingleOrDefault(f => f.FileId == FileId) : null;
+
+        if (file is null)
+        {
+            _fileName = null;
+            _loading = false;
+            return;
+        }
+
+        _fileName = file.OriginalFileName;
+        await LoadHistoryAsync();
+
+        _loading = false;
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _loadError = null;
+        var result = await ApiClient.GetDownloadHistoryAsync(FileId);
+
+        if (!result.IsSuccess)
+        {
+            _loadError = result.Message;
+            return;
+        }
+
+        _history = result.Value;
+    }
+}

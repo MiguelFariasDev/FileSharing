@@ -126,7 +126,7 @@ public class DashboardTests
     }
 
     [Fact]
-    public void NoFiles_ShowsTheEmptyStateMessage_WithoutAFakeUploadButton()
+    public void NoFiles_ShowsTheEmptyStateMessage_WithALinkToTheRealUploadPage()
     {
         using var ctx = new WebComponentTestContext(request =>
             request.RequestUri!.AbsolutePath.EndsWith("/api/files/mine")
@@ -136,9 +136,11 @@ public class DashboardTests
         var cut = ctx.RenderComponent<Dashboard>();
 
         Assert.Contains("Você ainda não possui arquivos", cut.Markup);
-        // No fake Web upload affordance — upload stays a Mobile-only responsibility (Etapa 3).
+        // Upload is a real, functional flow on Web now (Navigation phase) — every link pointing
+        // at it must be a genuine navigation link, never a `type="file"` input rendered directly
+        // on Dashboard itself (the actual picker lives on the dedicated /upload page).
         Assert.DoesNotContain("type=\"file\"", cut.Markup);
-        Assert.DoesNotContain("Enviar arquivo", cut.Markup);
+        Assert.NotNull(cut.Find("a[href='/upload']"));
     }
 
     [Fact]

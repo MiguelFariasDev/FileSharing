@@ -1,0 +1,227 @@
+@page "/upload"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Net.Http.Headers
+@using FileSharing.Application.Common
+@inject FileSharingApiClient ApiClient
+@inject S3UploadHttpClient UploadHttpClient
+@inject IJSRuntime JsRuntime
+
+<PageTitle>Enviar arquivo — FileSharing</PageTitle>
+
+<h1 class="h3 mb-3">Enviar arquivo</h1>
+
+@if (_stage == Stage.Idle)
+{
+    <p class="text-muted">Selecione um arquivo para compartilhar. Ele ficará disponível por 24 horas a partir da conclusão do envio.</p>
+
+    <InputFile OnChange="OnFileSelectedAsync" class="form-control" />
+
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger mt-3" role="alert">@_errorMessage</div>
+    }
+
+    <p class="text-muted small mt-2">
+        Tamanho máximo pelo navegador: @FileDisplayFormatting.FormatSize(MaxUploadSizeBytes).
+        Upload de pastas não é suportado pelo navegador nesta fase — utilize o aplicativo móvel para isso.
+    </p>
+}
+else if (_stage is Stage.Preparing or Stage.Uploading or Stage.Completing)
+{
+    <p class="mb-1">@_selectedFileName</p>
+    <div class="progress" role="progressbar" aria-valuenow="@_progressPercent" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar" style="width:@(_progressPercent)%">@(_progressPercent)%</div>
+    </div>
+    <p class="small text-muted mt-1">@StageLabel</p>
+
+    <button type="button" class="btn btn-outline-secondary btn-sm mt-2" @onclick="CancelUpload" disabled="@(_stage != Stage.Uploading)">
+        Cancelar
+    </button>
+}
+else if (_stage == Stage.Completed)
+{
+    <div class="alert alert-success py-2" role="status">Upload concluído com sucesso.</div>
+
+    @if (_generatedLink is not null)
+    {
+        <div class="d-flex flex-column gap-1 mb-3">
+            <code class="small text-truncate d-inline-block" style="max-width: 420px;">@_generatedLink</code>
+            <button type="button" class="btn btn-sm btn-outline-primary" style="width: fit-content;" @onclick="CopyLinkAsync">Copiar link</button>
+        </div>
+    }
+
+    <div class="d-flex gap-2">
+        <a href="@($"/files/{_completedFileId}")" class="btn btn-primary btn-sm">Ver detalhes</a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Reset">Enviar outro arquivo</button>
+    </div>
+}
+else if (_stage == Stage.Failed)
+{
+    <div class="alert alert-danger py-2" role="alert">@_errorMessage</div>
+    <button type="button" class="btn btn-outline-danger btn-sm" @onclick="Reset">Tentar novamente</button>
+}
+
+<p class="mt-3 mb-0"><a href="/dashboard">Voltar para meus arquivos</a></p>
+
+@code {
+    private enum Stage { Idle, Preparing, Uploading, Completing, Completed, Failed }
+
+    // Blazor Server's InputFile always transfers bytes browser -> SignalR circuit -> this
+    // server process (there is no direct browser-to-S3 path without bucket CORS changes, out
+    // of scope for this phase — see docs/navigation-flows.md "Known Issues"). A large transfer
+    // over that circuit is impractical, so the Web upload path caps well below the Api's own
+    // FileStorageOptions.MaxFileSizeBytes (5 GiB, used unmodified by the Mobile app, which PUTs
+    // directly from the device to S3 and never goes through this concern at all).
+    private const long MaxUploadSizeBytes = 200L * 1024 * 1024;
+
+    private Stage _stage = Stage.Idle;
+    private string? _selectedFileName;
+    private double _progressFraction;
+    private string? _errorMessage;
+    private string? _generatedLink;
+    private Guid _completedFileId;
+    private CancellationTokenSource? _uploadCancellation;
+
+    private int _progressPercent => (int)(_progressFraction * 100);
+
+    private string StageLabel => _stage switch
+    {
+        Stage.Preparing => "Preparando...",
+        Stage.Uploading => "Enviando com segurança...",
+        Stage.Completing => "Finalizando...",
+        _ => string.Empty
+    };
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        var file = e.File;
+
+        if (!FileTypePolicy.IsContentTypeAllowed(file.ContentType))
+        {
+            _errorMessage = "Tipo de arquivo não permitido.";
+            return;
+        }
+
+        if (file.Size <= 0 || file.Size > MaxUploadSizeBytes)
+        {
+            _errorMessage = $"O arquivo excede o limite de {FileDisplayFormatting.FormatSize(MaxUploadSizeBytes)} para envio pelo navegador.";
+            return;
+        }
+
+        await UploadAsync(file);
+    }
+
+    private async Task UploadAsync(IBrowserFile file)
+    {
+        _stage = Stage.Preparing;
+        _selectedFileName = file.Name;
+        _progressFraction = 0;
+        StateHasChanged();
+
+        _uploadCancellation = new CancellationTokenSource();
+        var cancellationToken = _uploadCancellation.Token;
+
+        var initiateResult = await ApiClient.InitiateUploadAsync(
+            new InitiateUploadRequest(file.Name, file.ContentType, file.Size, false),
+            cancellationToken);
+
+        if (!initiateResult.IsSuccess)
+        {
+            _stage = Stage.Failed;
+            _errorMessage = initiateResult.Message;
+            _uploadCancellation = null;
+            return;
+        }
+
+        var initiated = initiateResult.Value!;
+
+        try
+        {
+            _stage = Stage.Uploading;
+            StateHasChanged();
+
+            var progress = new Progress<double>(fraction =>
+            {
+                _progressFraction = fraction;
+                _ = InvokeAsync(StateHasChanged);
+            });
+
+            await using var browserStream = file.OpenReadStream(MaxUploadSizeBytes, cancellationToken);
+            using var progressStream = new ProgressReportingStream(browserStream, file.Size, progress);
+            using var content = new StreamContent(progressStream);
+            content.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+            content.Headers.ContentLength = file.Size;
+
+            using var putResponse = await UploadHttpClient.PutAsync(initiated.UploadUrl, content, cancellationToken);
+            putResponse.EnsureSuccessStatusCode();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _stage = Stage.Failed;
+            _errorMessage = "Envio cancelado.";
+            _uploadCancellation = null;
+            return;
+        }
+        catch (Exception)
+        {
+            // Covers an expired/invalid presigned URL, a real S3-side error, and a network
+            // failure mid-transfer alike — the file stays PendingUpload server-side either way
+            // (complete is never called), same discipline as the Mobile upload flow.
+            _stage = Stage.Failed;
+            _errorMessage = "Não foi possível concluir o envio. Verifique sua conexão e tente novamente.";
+            _uploadCancellation = null;
+            return;
+        }
+
+        _uploadCancellation = null;
+        _stage = Stage.Completing;
+        StateHasChanged();
+
+        var completeResult = await ApiClient.CompleteUploadAsync(initiated.FileId, cancellationToken);
+        if (!completeResult.IsSuccess)
+        {
+            _stage = Stage.Failed;
+            _errorMessage = completeResult.Message;
+            return;
+        }
+
+        _completedFileId = completeResult.Value!.FileId;
+
+        // Same endpoint the Dashboard/File Details pages use to generate a first link — best
+        // effort here: a failure to generate one right after upload is not itself an upload
+        // failure, the user can still generate it later from File Details.
+        var linkResult = await ApiClient.GenerateLinkAsync(_completedFileId, cancellationToken);
+        _generatedLink = linkResult.IsSuccess ? linkResult.Value!.PublicUrl : null;
+
+        _stage = Stage.Completed;
+    }
+
+    private void CancelUpload() => _uploadCancellation?.Cancel();
+
+    private async Task CopyLinkAsync()
+    {
+        if (_generatedLink is null)
+            return;
+
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("fileSharingInterop.copyToClipboard", _generatedLink);
+        }
+        catch (JSException)
+        {
+            // Best-effort, same as Dashboard's CopyLinkAsync — the link is still visible/
+            // selectable on screen even if the clipboard API is unavailable.
+        }
+    }
+
+    private void Reset()
+    {
+        _stage = Stage.Idle;
+        _selectedFileName = null;
+        _progressFraction = 0;
+        _errorMessage = null;
+        _generatedLink = null;
+    }
+}

@@ -75,6 +75,18 @@ public class LoginTests
     }
 
     [Fact]
+    public void AlreadyAuthenticated_RedirectsStraightToDashboard_WithoutShowingTheForm()
+    {
+        using var ctx = new WebComponentTestContext(SuccessfulAuthResponder);
+        ctx.TokenProvider.SetToken("jwt-token", DateTimeOffset.UtcNow.AddHours(1));
+
+        ctx.RenderComponent<Login>();
+
+        var navigation = ctx.Services.GetRequiredService<NavigationManager>();
+        Assert.EndsWith("/dashboard", navigation.Uri);
+    }
+
+    [Fact]
     public void RendersALinkToTheRegisterPage()
     {
         using var ctx = new WebComponentTestContext(SuccessfulAuthResponder);

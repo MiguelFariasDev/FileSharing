@@ -3,11 +3,25 @@ using System.Net.Http.Json;
 using Bunit;
 using FileSharing.Application.DTOs.Auth;
 using FileSharing.Web.Components.Pages;
+using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FileSharing.Web.Tests.Components;
 
 public class RegisterTests
 {
+    [Fact]
+    public void AlreadyAuthenticated_RedirectsStraightToDashboard_WithoutShowingTheForm()
+    {
+        using var ctx = new WebComponentTestContext(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        ctx.TokenProvider.SetToken("jwt-token", DateTimeOffset.UtcNow.AddHours(1));
+
+        ctx.RenderComponent<Register>();
+
+        var navigation = ctx.Services.GetRequiredService<NavigationManager>();
+        Assert.EndsWith("/dashboard", navigation.Uri);
+    }
+
     private static void FillForm(IRenderedComponent<Register> cut, string email, string password)
     {
         cut.Find("#register-email").Change(email);

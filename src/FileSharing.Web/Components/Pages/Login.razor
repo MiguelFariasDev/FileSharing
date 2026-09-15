@@ -53,6 +53,15 @@
     private string? _errorMessage;
     private bool _isBusy;
 
+    // An already-authenticated visitor landing on /login (bookmark, browser back, typed URL)
+    // is sent straight to the dashboard instead of being shown the form again — see
+    // docs/navigation-flows.md's "Authenticated users cannot access Login/Register unnecessarily".
+    protected override void OnInitialized()
+    {
+        if (TokenProvider.IsAuthenticated)
+            Navigation.NavigateTo("/dashboard");
+    }
+
     private async Task HandleLoginAsync()
     {
         _errorMessage = null;

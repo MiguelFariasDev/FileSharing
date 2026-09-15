@@ -10,7 +10,7 @@ public static class ApiClientExtensions
     {
         services.Configure<ApiSettings>(configuration.GetSection(ApiSettings.SectionName));
 
-        // The only HttpClient in this project — every Api call goes through FileSharingApiClient.
+        // Every call to this app's own Api goes through FileSharingApiClient's HttpClient.
         services.AddHttpClient<FileSharingApiClient>((sp, client) =>
         {
             var apiSettings = sp.GetRequiredService<IOptions<ApiSettings>>().Value;
@@ -20,6 +20,11 @@ public static class ApiClientExtensions
 
             client.BaseAddress = new Uri(apiSettings.BaseUrl);
         });
+
+        // Deliberately separate and unconfigured (no BaseAddress, no default headers): the
+        // upload flow's step 2 PUTs straight to a presigned S3 URL, which already carries its
+        // own authorization — this client must never see the Api's bearer token or base address.
+        services.AddHttpClient<S3UploadHttpClient>();
 
         return services;
     }

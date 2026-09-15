@@ -2,6 +2,7 @@
 @layout FileSharing.Web.Components.Layout.AuthLayout
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject FileSharingApiClient ApiClient
+@inject AuthTokenProvider TokenProvider
 @inject NavigationManager Navigation
 
 <PageTitle>Cadastro — FileSharing</PageTitle>
@@ -52,6 +53,14 @@
     private string? _errorMessage;
     private string? _successMessage;
     private bool _isBusy;
+
+    // Same rule as Login.razor — see docs/navigation-flows.md's "Authenticated users cannot
+    // access Login/Register unnecessarily".
+    protected override void OnInitialized()
+    {
+        if (TokenProvider.IsAuthenticated)
+            Navigation.NavigateTo("/dashboard");
+    }
 
     private async Task HandleRegisterAsync()
     {
