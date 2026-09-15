@@ -3,6 +3,7 @@ using Amazon;
 using Amazon.S3;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
@@ -165,25 +166,22 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
         Assert.Null(afterComplete.AccessTokenHash); // no link generated yet
 
         // --- 6. Generate the public link. ---
-        var linkResult = await _linkService.GenerateLinkAsync(user.Id, file.Id);
-        Assert.True(linkResult.IsSuccess);
-        var accessToken = linkResult.Value!.AccessToken;
+        var link = await _linkService.GenerateLinkAsync(user.Id, file.Id);
+        var accessToken = link.AccessToken;
 
         var afterLink = await _dbContext.Files.SingleAsync(f => f.Id == file.Id);
         Assert.False(string.IsNullOrWhiteSpace(afterLink.AccessTokenHash));
 
         // --- 7. Public access (no JWT at all — this test never authenticates as this user
         //        for anything past step 1's direct entity creation). ---
-        var accessResult = await _linkService.GetByAccessTokenAsync(accessToken);
-        Assert.True(accessResult.IsSuccess);
-        Assert.Equal(file.Id, accessResult.Value!.FileId);
-        Assert.Equal("lifecycle-document.pdf", accessResult.Value.OriginalFileName);
+        var access = await _linkService.GetByAccessTokenAsync(accessToken);
+        Assert.Equal(file.Id, access.FileId);
+        Assert.Equal("lifecycle-document.pdf", access.OriginalFileName);
 
         // --- 8. Public download: real presigned GET, real bytes back, real Download row. ---
-        var downloadResult = await _downloadService.DownloadAsync(accessToken, "203.0.113.50", "FullLifecycleTest/1.0");
-        Assert.True(downloadResult.IsSuccess);
+        var downloadResponse = await _downloadService.DownloadAsync(accessToken, "203.0.113.50", "FullLifecycleTest/1.0");
 
-        var getResponse = await _httpClient.GetAsync(downloadResult.Value!.DownloadUrl);
+        var getResponse = await _httpClient.GetAsync(downloadResponse.DownloadUrl);
         getResponse.EnsureSuccessStatusCode();
         var downloadedBytes = await getResponse.Content.ReadAsByteArrayAsync();
         Assert.Equal(content, downloadedBytes); // byte-for-byte integrity, not just a status code
@@ -200,15 +198,13 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
         // class-level comment on FileDownloadIntegrationTests for why that split is deliberate).
 
         // --- 10. Regenerate the link — old token must stop resolving publicly. ---
-        var secondLinkResult = await _linkService.GenerateLinkAsync(user.Id, file.Id);
-        Assert.True(secondLinkResult.IsSuccess);
-        Assert.NotEqual(accessToken, secondLinkResult.Value!.AccessToken);
+        var secondLink = await _linkService.GenerateLinkAsync(user.Id, file.Id);
+        Assert.NotEqual(accessToken, secondLink.AccessToken);
 
-        var oldTokenNowResult = await _linkService.GetByAccessTokenAsync(accessToken);
-        Assert.False(oldTokenNowResult.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _linkService.GetByAccessTokenAsync(accessToken));
 
-        var newTokenResult = await _linkService.GetByAccessTokenAsync(secondLinkResult.Value.AccessToken);
-        Assert.True(newTokenResult.IsSuccess);
+        var newTokenAccess = await _linkService.GetByAccessTokenAsync(secondLink.AccessToken);
+        Assert.Equal(file.Id, newTokenAccess.FileId);
 
         // --- 11. Force expiration (backdate ExpiresAt via the same technique already
         //         established by PublicFilesEndpointsTests/ExpiredFileCleanupJobIntegrationTests —
@@ -220,8 +216,7 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
         // having run — same invariant already covered by
         // PublicFilesEndpointsTests.GetPublicFile_WithExpiredFilesToken_ReturnsNotFound, restated
         // here as one more link in this same chain rather than a fresh assertion on its own.
-        var expiredButNotYetCleanedUp = await _linkService.GetByAccessTokenAsync(secondLinkResult.Value.AccessToken);
-        Assert.False(expiredButNotYetCleanedUp.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _linkService.GetByAccessTokenAsync(secondLink.AccessToken));
         Assert.True(await _storageService.ObjectExistsAsync(storageKey)); // Hangfire hasn't run yet
 
         // --- 12. Hangfire cleanup job actually runs (direct Execute, per CLAUDE.md's own testing
@@ -243,7 +238,6 @@ public class FullLifecycleIntegrationTests : IAsyncLifetime
         var finalFile = await _dbContext.Files.SingleAsync(f => f.Id == file.Id);
         Assert.Equal(FileStatus.Expired, finalFile.Status);
 
-        var afterCleanupLinkResult = await _linkService.GetByAccessTokenAsync(secondLinkResult.Value.AccessToken);
-        Assert.False(afterCleanupLinkResult.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _linkService.GetByAccessTokenAsync(secondLink.AccessToken));
     }
 }

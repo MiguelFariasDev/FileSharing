@@ -1,5 +1,6 @@
 using FileSharing.Application.Abstractions.Persistence;
-using FileSharing.Application.Common;
+using FileSharing.Application.Common.Errors;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Files;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,7 +36,7 @@ public class FileQueryService : IFileQueryService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<Result<IReadOnlyList<DownloadHistoryEntryResponse>>> GetDownloadHistoryAsync(
+    public async Task<IReadOnlyList<DownloadHistoryEntryResponse>> GetDownloadHistoryAsync(
         Guid userId,
         Guid fileId,
         CancellationToken cancellationToken = default)
@@ -46,14 +47,12 @@ public class FileQueryService : IFileQueryService
         // to a caller whether a given file id belongs to another user (same pattern as
         // FileUploadService.CompleteUploadAsync).
         if (file is null || file.UserId != userId)
-            return Result<IReadOnlyList<DownloadHistoryEntryResponse>>.Failure(FileNotFoundError);
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, FileNotFoundError);
 
-        var history = await _dbContext.Downloads
+        return await _dbContext.Downloads
             .Where(d => d.FileId == fileId)
             .OrderByDescending(d => d.DownloadedAt)
             .Select(d => new DownloadHistoryEntryResponse(d.DownloadedAt))
             .ToListAsync(cancellationToken);
-
-        return Result<IReadOnlyList<DownloadHistoryEntryResponse>>.Success(history);
     }
 }

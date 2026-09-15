@@ -14,4 +14,9 @@ public sealed class ConflictException : AppException
         : base(409, code, ErrorCodeCatalog.Map(code), message)
     {
     }
+
+    public ConflictException(FileErrorCode code, string message)
+        : base(409, code, ErrorCodeCatalog.Map(code), message)
+    {
+    }
 }

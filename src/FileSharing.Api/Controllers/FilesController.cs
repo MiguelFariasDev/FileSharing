@@ -54,11 +54,8 @@ public class FilesController : ControllerBase
         if (!User.TryGetUserId(out var userId))
             return Unauthorized();
 
-        var result = await _fileQueryService.GetDownloadHistoryAsync(userId, id, cancellationToken);
-        if (!result.IsSuccess)
-            return NotFound(new { message = result.Error });
-
-        return Ok(result.Value);
+        var history = await _fileQueryService.GetDownloadHistoryAsync(userId, id, cancellationToken);
+        return Ok(history);
     }
 
     [HttpPost("upload")]
@@ -74,11 +71,8 @@ public class FilesController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var result = await _fileUploadService.InitiateUploadAsync(userId, request, cancellationToken);
-        if (!result.IsSuccess)
-            return BadRequest(new { message = result.Error });
-
-        return StatusCode(StatusCodes.Status201Created, result.Value);
+        var response = await _fileUploadService.InitiateUploadAsync(userId, request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 
     [HttpPost("{id:guid}/complete")]
@@ -87,15 +81,8 @@ public class FilesController : ControllerBase
         if (!User.TryGetUserId(out var userId))
             return Unauthorized();
 
-        var result = await _fileUploadService.CompleteUploadAsync(userId, id, cancellationToken);
-        if (!result.IsSuccess)
-        {
-            return result.FailureReason == CompleteUploadFailureReason.NotFound
-                ? NotFound(new { message = result.Error })
-                : Conflict(new { message = result.Error });
-        }
-
-        return Ok(result.Value);
+        var response = await _fileUploadService.CompleteUploadAsync(userId, id, cancellationToken);
+        return Ok(response);
     }
 
     [HttpPost("{id:guid}/link")]
@@ -104,27 +91,21 @@ public class FilesController : ControllerBase
         if (!User.TryGetUserId(out var userId))
             return Unauthorized();
 
-        var result = await _filePublicLinkService.GenerateLinkAsync(userId, id, cancellationToken);
-        if (!result.IsSuccess)
-        {
-            return result.FailureReason == GenerateLinkFailureReason.NotFound
-                ? NotFound(new { message = result.Error })
-                : Conflict(new { message = result.Error });
-        }
+        var response = await _filePublicLinkService.GenerateLinkAsync(userId, id, cancellationToken);
 
         // publicUrl is derived from the incoming request's own scheme/host — never a
         // hardcoded production domain — so it works unchanged across local, staging and prod.
         var publicUrl = Url.Action(
             action: nameof(PublicFilesController.GetPublicFile),
             controller: "PublicFiles",
-            values: new { token = result.Value!.AccessToken },
+            values: new { token = response.AccessToken },
             protocol: Request.Scheme,
             host: Request.Host.Value);
 
         return Ok(new
         {
-            fileId = result.Value.FileId,
-            accessToken = result.Value.AccessToken,
+            fileId = response.FileId,
+            accessToken = response.AccessToken,
             publicUrl
         });
     }

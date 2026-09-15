@@ -1,4 +1,5 @@
 using FileSharing.Application.Abstractions.Storage;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Files;
 using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
@@ -39,11 +40,9 @@ public class FileUploadServiceTests : IDisposable
             .ReturnsAsync(new PresignedUploadUrl("https://mock/upload", DateTimeOffset.UtcNow.AddMinutes(15)));
 
         var userId = Guid.NewGuid();
-        var result = await _sut.InitiateUploadAsync(userId, CreatePdfRequest());
+        var response = await _sut.InitiateUploadAsync(userId, CreatePdfRequest());
 
-        Assert.True(result.IsSuccess);
-
-        var file = await _dbContext.Files.SingleAsync(f => f.Id == result.Value!.FileId);
+        var file = await _dbContext.Files.SingleAsync(f => f.Id == response.FileId);
         Assert.Equal(FileStatus.PendingUpload, file.Status);
         Assert.False(file.IsActive);
         Assert.Null(file.CreatedAt);
@@ -61,8 +60,8 @@ public class FileUploadServiceTests : IDisposable
         var first = await _sut.InitiateUploadAsync(userId, CreatePdfRequest());
         var second = await _sut.InitiateUploadAsync(userId, CreatePdfRequest());
 
-        var firstFile = await _dbContext.Files.SingleAsync(f => f.Id == first.Value!.FileId);
-        var secondFile = await _dbContext.Files.SingleAsync(f => f.Id == second.Value!.FileId);
+        var firstFile = await _dbContext.Files.SingleAsync(f => f.Id == first.FileId);
+        var secondFile = await _dbContext.Files.SingleAsync(f => f.Id == second.FileId);
 
         Assert.NotEqual(firstFile.StorageKey, secondFile.StorageKey);
         Assert.DoesNotContain("document", firstFile.StorageKey, StringComparison.OrdinalIgnoreCase);
@@ -77,10 +76,10 @@ public class FileUploadServiceTests : IDisposable
             .Setup(s => s.CreatePresignedUploadUrlAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PresignedUploadUrl("https://mock/upload-here", expiresAt));
 
-        var result = await _sut.InitiateUploadAsync(Guid.NewGuid(), CreatePdfRequest());
+        var response = await _sut.InitiateUploadAsync(Guid.NewGuid(), CreatePdfRequest());
 
-        Assert.Equal("https://mock/upload-here", result.Value!.UploadUrl);
-        Assert.Equal(expiresAt, result.Value.ExpiresAt);
+        Assert.Equal("https://mock/upload-here", response.UploadUrl);
+        Assert.Equal(expiresAt, response.ExpiresAt);
     }
 
     [Fact]
@@ -89,10 +88,10 @@ public class FileUploadServiceTests : IDisposable
         var owner = Guid.NewGuid();
         var fileId = await SeedPendingFileAsync(owner, sizeBytes: 1024, contentType: "application/pdf");
 
-        var result = await _sut.CompleteUploadAsync(Guid.NewGuid(), fileId);
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.CompleteUploadAsync(Guid.NewGuid(), fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(CompleteUploadFailureReason.NotFound, result.FailureReason);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
@@ -105,10 +104,9 @@ public class FileUploadServiceTests : IDisposable
             .Setup(s => s.GetObjectMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((StorageObjectMetadata?)null);
 
-        var result = await _sut.CompleteUploadAsync(userId, fileId);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => _sut.CompleteUploadAsync(userId, fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(CompleteUploadFailureReason.Conflict, result.FailureReason);
+        Assert.Equal("FILE_UPLOAD_INVALID_STATE", exception.PublicCode);
 
         var file = await _dbContext.Files.SingleAsync(f => f.Id == fileId);
         Assert.Equal(FileStatus.PendingUpload, file.Status);
@@ -124,10 +122,9 @@ public class FileUploadServiceTests : IDisposable
             .Setup(s => s.GetObjectMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StorageObjectMetadata(999, "application/pdf"));
 
-        var result = await _sut.CompleteUploadAsync(userId, fileId);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => _sut.CompleteUploadAsync(userId, fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(CompleteUploadFailureReason.Conflict, result.FailureReason);
+        Assert.Equal("FILE_UPLOAD_INVALID_STATE", exception.PublicCode);
 
         var file = await _dbContext.Files.SingleAsync(f => f.Id == fileId);
         Assert.Equal(FileStatus.PendingUpload, file.Status);
@@ -144,10 +141,8 @@ public class FileUploadServiceTests : IDisposable
             .ReturnsAsync(new StorageObjectMetadata(1024, "application/pdf"));
 
         var before = DateTimeOffset.UtcNow;
-        var result = await _sut.CompleteUploadAsync(userId, fileId);
+        await _sut.CompleteUploadAsync(userId, fileId);
         var after = DateTimeOffset.UtcNow;
-
-        Assert.True(result.IsSuccess);
 
         var file = await _dbContext.Files.SingleAsync(f => f.Id == fileId);
         Assert.Equal(FileStatus.Active, file.Status);
@@ -165,12 +160,10 @@ public class FileUploadServiceTests : IDisposable
             .Setup(s => s.GetObjectMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new StorageObjectMetadata(1024, "application/pdf"));
 
-        var first = await _sut.CompleteUploadAsync(userId, fileId);
-        var second = await _sut.CompleteUploadAsync(userId, fileId);
+        await _sut.CompleteUploadAsync(userId, fileId);
 
-        Assert.True(first.IsSuccess);
-        Assert.False(second.IsSuccess);
-        Assert.Equal(CompleteUploadFailureReason.Conflict, second.FailureReason);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => _sut.CompleteUploadAsync(userId, fileId));
+        Assert.Equal("FILE_UPLOAD_INVALID_STATE", exception.PublicCode);
     }
 
     private async Task<Guid> SeedPendingFileAsync(Guid userId, long sizeBytes, string contentType)

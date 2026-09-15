@@ -154,22 +154,20 @@ public class FileDownloadIntegrationTests : IAsyncLifetime
     public async Task DownloadAsync_FullFlow_RegistersADownloadRow_AndReturnsAWorkingPresignedGetUrl()
     {
         // 1. Generate/associate a real token (Phase 4 service, real Postgres).
-        var linkResult = await _linkService.GenerateLinkAsync(_userId, _fileId);
-        Assert.True(linkResult.IsSuccess);
-        var accessToken = linkResult.Value!.AccessToken;
+        var link = await _linkService.GenerateLinkAsync(_userId, _fileId);
+        var accessToken = link.AccessToken;
 
         // 2. Call the public download flow (Phase 5 service, real Postgres + real LocalStack).
         var result = await _downloadService.DownloadAsync(accessToken, "203.0.113.10", "IntegrationTest/1.0");
 
-        Assert.True(result.IsSuccess);
-        Assert.False(string.IsNullOrWhiteSpace(result.Value!.DownloadUrl));
+        Assert.False(string.IsNullOrWhiteSpace(result.DownloadUrl));
 
         // Short-lived — configured 300s, well under the file's own 24h window.
-        Assert.True(result.Value.ExpiresAt > DateTimeOffset.UtcNow);
-        Assert.True(result.Value.ExpiresAt <= DateTimeOffset.UtcNow.AddSeconds(300).AddSeconds(5));
+        Assert.True(result.ExpiresAt > DateTimeOffset.UtcNow);
+        Assert.True(result.ExpiresAt <= DateTimeOffset.UtcNow.AddSeconds(300).AddSeconds(5));
 
         // 3. The presigned URL must actually work (real GET against the real bucket).
-        var getResponse = await _httpClient.GetAsync(result.Value.DownloadUrl);
+        var getResponse = await _httpClient.GetAsync(result.DownloadUrl);
         Assert.True(getResponse.IsSuccessStatusCode, await getResponse.Content.ReadAsStringAsync());
 
         // 4. Verify the Download row landed in Postgres.
@@ -204,13 +202,12 @@ public class FileDownloadIntegrationTests : IAsyncLifetime
 
         try
         {
-            var linkResult = await _linkService.GenerateLinkAsync(user.Id, file.Id);
-            Assert.True(linkResult.IsSuccess);
+            var link = await _linkService.GenerateLinkAsync(user.Id, file.Id);
 
             // No object was ever PUT for this file's StorageKey.
-            var result = await _downloadService.DownloadAsync(linkResult.Value!.AccessToken, "203.0.113.20", "IntegrationTest/1.0");
+            await Assert.ThrowsAsync<FileSharing.Application.Common.Exceptions.ResourceNotFoundException>(
+                () => _downloadService.DownloadAsync(link.AccessToken, "203.0.113.20", "IntegrationTest/1.0"));
 
-            Assert.False(result.IsSuccess);
             Assert.False(await _dbContext.Downloads.AnyAsync(d => d.FileId == file.Id));
         }
         finally

@@ -1,4 +1,5 @@
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Enums;
 using FileSharing.Infrastructure.Persistence;
@@ -155,10 +156,9 @@ public class FileQueryServiceTests : IDisposable
 
         var result = await _sut.GetDownloadHistoryAsync(userId, file.Id);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal(2, result.Value!.Count);
-        Assert.Equal(newer.DownloadedAt, result.Value[0].DownloadedAt);
-        Assert.Equal(older.DownloadedAt, result.Value[1].DownloadedAt);
+        Assert.Equal(2, result.Count);
+        Assert.Equal(newer.DownloadedAt, result[0].DownloadedAt);
+        Assert.Equal(older.DownloadedAt, result[1].DownloadedAt);
     }
 
     [Fact]
@@ -176,9 +176,10 @@ public class FileQueryServiceTests : IDisposable
     {
         var userId = await SeedUserAsync();
 
-        var result = await _sut.GetDownloadHistoryAsync(userId, Guid.NewGuid());
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.GetDownloadHistoryAsync(userId, Guid.NewGuid()));
 
-        Assert.False(result.IsSuccess);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
@@ -190,9 +191,6 @@ public class FileQueryServiceTests : IDisposable
         _dbContext.Downloads.Add(new FileSharing.Domain.Entities.Download(file.Id, "203.0.113.10", "TestAgent/1.0"));
         await _dbContext.SaveChangesAsync();
 
-        var result = await _sut.GetDownloadHistoryAsync(otherUserId, file.Id);
-
-        Assert.False(result.IsSuccess);
-        Assert.Null(result.Value);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _sut.GetDownloadHistoryAsync(otherUserId, file.Id));
     }
 }

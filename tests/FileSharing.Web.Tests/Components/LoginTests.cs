@@ -64,7 +64,7 @@ public class LoginTests
     [Fact]
     public void ApiUnavailable_ShowsAFriendlyNetworkMessage()
     {
-        using var ctx = new WebComponentTestContext(_ => throw new HttpRequestException("simulated network failure"));
+        using var ctx = new WebComponentTestContext((Func<HttpRequestMessage, HttpResponseMessage>)(_ => throw new HttpRequestException("simulated network failure")));
         var cut = ctx.RenderComponent<Login>();
 
         FillForm(cut, "user@example.com", "SenhaForte123");

@@ -24,8 +24,22 @@ public class WebComponentTestContext : TestContext
     public RoutedFakeHttpMessageHandler Handler { get; }
 
     public WebComponentTestContext(Func<HttpRequestMessage, HttpResponseMessage> responder)
+        : this(new RoutedFakeHttpMessageHandler(responder))
     {
-        Handler = new RoutedFakeHttpMessageHandler(responder);
+    }
+
+    /// <summary>
+    /// Async overload — lets a test hold a response open (e.g. via a TaskCompletionSource) to
+    /// observe a component's in-flight/loading state before completing it.
+    /// </summary>
+    public WebComponentTestContext(Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)
+        : this(new RoutedFakeHttpMessageHandler(responder))
+    {
+    }
+
+    private WebComponentTestContext(RoutedFakeHttpMessageHandler handler)
+    {
+        Handler = handler;
 
         var httpClient = new HttpClient(Handler) { BaseAddress = new Uri(FakeApiBaseUrl) };
         TokenProvider = new AuthTokenProvider();

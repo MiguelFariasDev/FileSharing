@@ -6,11 +6,21 @@ namespace FileSharing.Web.Tests.Services;
 /// </summary>
 public class RoutedFakeHttpMessageHandler : HttpMessageHandler
 {
-    private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
+    private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>> _responder;
 
     public List<HttpRequestMessage> Requests { get; } = [];
 
     public RoutedFakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder)
+        : this(request => Task.FromResult(responder(request)))
+    {
+    }
+
+    /// <summary>
+    /// Async overload — lets a test control exactly when a response completes (e.g. via a
+    /// TaskCompletionSource) to observe a component's in-flight/loading state, instead of every
+    /// response resolving synchronously before the test can inspect anything.
+    /// </summary>
+    public RoutedFakeHttpMessageHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)
     {
         _responder = responder;
     }
@@ -18,6 +28,6 @@ public class RoutedFakeHttpMessageHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
-        return Task.FromResult(_responder(request));
+        return _responder(request);
     }
 }

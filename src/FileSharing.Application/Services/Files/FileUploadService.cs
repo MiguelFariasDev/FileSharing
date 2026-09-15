@@ -2,6 +2,8 @@ using System.Diagnostics;
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Errors;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Files;
 using FileSharing.Application.Observability;
 using FileSharing.Domain.Enums;
@@ -32,7 +34,7 @@ public class FileUploadService : IFileUploadService
         _logger = logger;
     }
 
-    public async Task<Result<InitiateUploadResponse>> InitiateUploadAsync(
+    public async Task<InitiateUploadResponse> InitiateUploadAsync(
         Guid userId,
         InitiateUploadRequest request,
         CancellationToken cancellationToken = default)
@@ -65,11 +67,10 @@ public class FileUploadService : IFileUploadService
             file.Id, userId, request.ContentType, request.SizeBytes);
         _metrics.UploadInitiated();
 
-        return Result<InitiateUploadResponse>.Success(
-            new InitiateUploadResponse(file.Id, presignedUrl.Url, presignedUrl.ExpiresAt));
+        return new InitiateUploadResponse(file.Id, presignedUrl.Url, presignedUrl.ExpiresAt);
     }
 
-    public async Task<CompleteUploadOutcome> CompleteUploadAsync(
+    public async Task<CompleteUploadResponse> CompleteUploadAsync(
         Guid userId,
         Guid fileId,
         CancellationToken cancellationToken = default)
@@ -84,14 +85,14 @@ public class FileUploadService : IFileUploadService
         {
             _logger.LogWarning("Complete upload rejected: file not found or not owned by caller. FileId={FileId} UserId={UserId}", fileId, userId);
             _metrics.UploadCompleted(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return CompleteUploadOutcome.Failure(CompleteUploadFailureReason.NotFound, FileNotFoundError);
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, FileNotFoundError);
         }
 
         if (!file.IsPendingUpload)
         {
             _logger.LogWarning("Complete upload rejected: not pending confirmation. FileId={FileId}", file.Id);
             _metrics.UploadCompleted(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return CompleteUploadOutcome.Failure(CompleteUploadFailureReason.Conflict, "Este upload não está pendente de confirmação.");
+            throw new ConflictException(FileErrorCode.InvalidUploadState, "Este upload não está pendente de confirmação.");
         }
 
         var metadata = await _fileStorageService.GetObjectMetadataAsync(file.StorageKey, cancellationToken);
@@ -100,14 +101,14 @@ public class FileUploadService : IFileUploadService
         {
             _logger.LogWarning("Complete upload rejected: object not found in storage. FileId={FileId}", file.Id);
             _metrics.UploadCompleted(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return CompleteUploadOutcome.Failure(CompleteUploadFailureReason.Conflict, "O objeto não foi encontrado no armazenamento.");
+            throw new ConflictException(FileErrorCode.InvalidUploadState, "O objeto não foi encontrado no armazenamento.");
         }
 
         if (metadata.SizeBytes != file.SizeBytes)
         {
             _logger.LogWarning("Complete upload rejected: uploaded size does not match the declared size. FileId={FileId}", file.Id);
             _metrics.UploadCompleted(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return CompleteUploadOutcome.Failure(CompleteUploadFailureReason.Conflict, "O tamanho do objeto enviado não corresponde ao declarado.");
+            throw new ConflictException(FileErrorCode.InvalidUploadState, "O tamanho do objeto enviado não corresponde ao declarado.");
         }
 
         if (!string.IsNullOrEmpty(metadata.ContentType) &&
@@ -115,7 +116,7 @@ public class FileUploadService : IFileUploadService
         {
             _logger.LogWarning("Complete upload rejected: uploaded Content-Type does not match the declared value. FileId={FileId}", file.Id);
             _metrics.UploadCompleted(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return CompleteUploadOutcome.Failure(CompleteUploadFailureReason.Conflict, "O Content-Type do objeto enviado não corresponde ao declarado.");
+            throw new ConflictException(FileErrorCode.InvalidUploadState, "O Content-Type do objeto enviado não corresponde ao declarado.");
         }
 
         file.CompleteUpload(DateTimeOffset.UtcNow);
@@ -126,11 +127,11 @@ public class FileUploadService : IFileUploadService
             file.Id, userId, file.SizeBytes, file.ExpiresAt);
         _metrics.UploadCompleted(success: true, stopwatch.Elapsed.TotalMilliseconds);
 
-        return CompleteUploadOutcome.Success(new CompleteUploadResponse(
+        return new CompleteUploadResponse(
             file.Id,
             file.OriginalFileName,
             file.SizeBytes,
             file.CreatedAt!.Value,
-            file.ExpiresAt!.Value));
+            file.ExpiresAt!.Value);
     }
 }

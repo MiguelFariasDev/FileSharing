@@ -3,6 +3,8 @@ using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Errors;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Files;
 using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Application.Observability;
@@ -14,6 +16,13 @@ namespace FileSharing.Application.Services.Files;
 
 public class FileDownloadService : IFileDownloadService
 {
+    /// <summary>
+    /// Deliberately the one message used for every reason a public download can fail — unknown
+    /// token, expired file, wrong status, missing storage object — so the response is identical
+    /// regardless of cause (see PublicFilesController remarks on anti-enumeration).
+    /// </summary>
+    private const string DownloadNotAvailableError = "Arquivo não disponível.";
+
     private readonly IApplicationDbContext _dbContext;
     private readonly IFileStorageService _fileStorageService;
     private readonly IFileDownloadNotifier _fileDownloadNotifier;
@@ -34,7 +43,7 @@ public class FileDownloadService : IFileDownloadService
         _logger = logger;
     }
 
-    public async Task<DownloadFileOutcome> DownloadAsync(
+    public async Task<DownloadUrlResponse> DownloadAsync(
         string accessToken,
         string ipAddress,
         string userAgent,
@@ -55,7 +64,7 @@ public class FileDownloadService : IFileDownloadService
         {
             _logger.LogInformation("Public download denied: token unavailable or file not active.");
             _metrics.Download(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return DownloadFileOutcome.NotAvailable();
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, DownloadNotAvailableError);
         }
 
         var objectExists = await _fileStorageService.ObjectExistsAsync(file.StorageKey, cancellationToken);
@@ -63,7 +72,7 @@ public class FileDownloadService : IFileDownloadService
         {
             _logger.LogWarning("Public download denied: object missing from storage. FileId={FileId}", file.Id);
             _metrics.Download(success: false, stopwatch.Elapsed.TotalMilliseconds);
-            return DownloadFileOutcome.NotAvailable();
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, DownloadNotAvailableError);
         }
 
         // "Download" is recorded here as "an authorized presigned URL was issued to the
@@ -108,6 +117,6 @@ public class FileDownloadService : IFileDownloadService
         _logger.LogInformation("Public download completed. FileId={FileId} UserId={UserId}", file.Id, file.UserId);
         _metrics.Download(success: true, stopwatch.Elapsed.TotalMilliseconds);
 
-        return DownloadFileOutcome.Success(new DownloadUrlResponse(presigned.Url, presigned.ExpiresAt));
+        return new DownloadUrlResponse(presigned.Url, presigned.ExpiresAt);
     }
 }

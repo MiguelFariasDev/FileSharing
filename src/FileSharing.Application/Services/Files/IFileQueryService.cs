@@ -1,4 +1,3 @@
-using FileSharing.Application.Common;
 using FileSharing.Application.DTOs.Files;
 
 namespace FileSharing.Application.Services.Files;
@@ -14,11 +13,12 @@ public interface IFileQueryService
     Task<IReadOnlyList<FileSummaryResponse>> GetMyFilesAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Same generic "not found" outcome whether the file does not exist or belongs to a
-    /// different user — mirrors the ownership-check pattern already used by
-    /// <see cref="IFileUploadService.CompleteUploadAsync"/> and <see cref="IFilePublicLinkService.GenerateLinkAsync"/>.
+    /// Throws <see cref="Common.Exceptions.ResourceNotFoundException"/> — same generic "not
+    /// found" whether the file does not exist or belongs to a different user — mirrors the
+    /// ownership-check pattern already used by <see cref="IFileUploadService.CompleteUploadAsync"/>
+    /// and <see cref="IFilePublicLinkService.GenerateLinkAsync"/>.
     /// </summary>
-    Task<Result<IReadOnlyList<DownloadHistoryEntryResponse>>> GetDownloadHistoryAsync(
+    Task<IReadOnlyList<DownloadHistoryEntryResponse>> GetDownloadHistoryAsync(
         Guid userId,
         Guid fileId,
         CancellationToken cancellationToken = default);

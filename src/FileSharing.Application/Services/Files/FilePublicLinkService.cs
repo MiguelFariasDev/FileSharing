@@ -1,5 +1,7 @@
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Errors;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Files;
 using FileSharing.Application.Observability;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +15,13 @@ public class FilePublicLinkService : IFilePublicLinkService
     private const string FileNotReadyError = "O upload ainda não foi concluído.";
     private const string FileExpiredError = "O arquivo expirou.";
 
+    /// <summary>
+    /// Deliberately the one message used for every reason a public token lookup can fail —
+    /// unknown token, expired file, removed file — so the response is identical regardless of
+    /// cause (see PublicFilesController remarks on anti-enumeration).
+    /// </summary>
+    private const string PublicFileNotAvailableError = "Arquivo não disponível.";
+
     private readonly IApplicationDbContext _dbContext;
     private readonly AppMetrics _metrics;
     private readonly ILogger<FilePublicLinkService> _logger;
@@ -24,7 +33,7 @@ public class FilePublicLinkService : IFilePublicLinkService
         _logger = logger;
     }
 
-    public async Task<GenerateLinkOutcome> GenerateLinkAsync(
+    public async Task<GenerateLinkResponse> GenerateLinkAsync(
         Guid userId,
         Guid fileId,
         CancellationToken cancellationToken = default)
@@ -36,20 +45,20 @@ public class FilePublicLinkService : IFilePublicLinkService
         if (file is null || file.UserId != userId)
         {
             _logger.LogWarning("Generate link rejected: file not found or not owned by caller. FileId={FileId} UserId={UserId}", fileId, userId);
-            return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.NotFound, FileNotFoundError);
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, FileNotFoundError);
         }
 
         if (!file.IsActive)
         {
             _logger.LogWarning("Generate link rejected: file not active. FileId={FileId} Status={Status}", file.Id, file.Status);
-            return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.Conflict, FileNotReadyError);
+            throw new ConflictException(FileErrorCode.UploadNotCompleted, FileNotReadyError);
         }
 
         var now = DateTimeOffset.UtcNow;
         if (file.IsExpired(now))
         {
             _logger.LogWarning("Generate link rejected: file already expired. FileId={FileId}", file.Id);
-            return GenerateLinkOutcome.Failure(GenerateLinkFailureReason.Conflict, FileExpiredError);
+            throw new ConflictException(FileErrorCode.Expired, FileExpiredError);
         }
 
         // A fresh token every call — regenerating invalidates whatever link was issued before,
@@ -63,10 +72,10 @@ public class FilePublicLinkService : IFilePublicLinkService
         _logger.LogInformation("Public link generated. FileId={FileId} UserId={UserId}", file.Id, userId);
         _metrics.LinkGenerated();
 
-        return GenerateLinkOutcome.Success(new GenerateLinkResponse(file.Id, accessToken));
+        return new GenerateLinkResponse(file.Id, accessToken);
     }
 
-    public async Task<PublicFileAccessOutcome> GetByAccessTokenAsync(
+    public async Task<PublicFileAccessResponse> GetByAccessTokenAsync(
         string accessToken,
         CancellationToken cancellationToken = default)
     {
@@ -81,17 +90,17 @@ public class FilePublicLinkService : IFilePublicLinkService
             // null (there is nothing legitimate to correlate an unknown-token attempt to).
             _logger.LogInformation("Public file access denied: token unavailable or file not active.");
             _metrics.PublicLinkAccessed(success: false);
-            return PublicFileAccessOutcome.NotAvailable();
+            throw new ResourceNotFoundException(FileErrorCode.NotFound, PublicFileNotAvailableError);
         }
 
         _logger.LogInformation("Public file accessed. FileId={FileId}", file.Id);
         _metrics.PublicLinkAccessed(success: true);
 
-        return PublicFileAccessOutcome.Success(new PublicFileAccessResponse(
+        return new PublicFileAccessResponse(
             file.Id,
             file.OriginalFileName,
             file.SizeBytes,
             file.ContentType,
-            file.ExpiresAt!.Value));
+            file.ExpiresAt!.Value);
     }
 }

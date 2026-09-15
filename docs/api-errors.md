@@ -49,13 +49,17 @@ Erros inesperados (uma exceção que não é uma das acima — EF Core, AWS SDK,
 
 | Enum Value            | Código Público               | HTTP | Descrição |
 | ---------------------- | ------------------------------ | ---: | --------- |
-| `NotFound`             | `FILE_NOT_FOUND`               |    — | Reservado — os endpoints de arquivo hoje usam o `Result<T>`/`FailureReason` já existente (ver `docs/architecture.md`), não esta exceção; mantido para uso futuro/consistência com o restante do catálogo |
-| `Expired`              | `FILE_EXPIRED`                  |    — | Reservado |
+| `NotFound`             | `FILE_NOT_FOUND`               |  404 | Arquivo inexistente, pertencente a outro usuário (`FilesController`), ou token público inexistente/expirado/removido (`PublicFilesController` — mesmo código para as três causas, ver "Anti-enumeração" abaixo) |
+| `Expired`              | `FILE_EXPIRED`                  |  409 | Geração de link para um arquivo já expirado (`GenerateLinkAsync`) |
 | `AccessDenied`         | `FILE_ACCESS_DENIED`           |    — | Reservado |
 | `InvalidType`          | `FILE_INVALID_TYPE`            |    — | Reservado — hoje coberto por `VALIDATION_ERROR` |
-| `InvalidUploadState`   | `FILE_UPLOAD_INVALID_STATE`    |    — | Reservado |
+| `InvalidUploadState`   | `FILE_UPLOAD_INVALID_STATE`    |  409 | `CompleteUploadAsync`: upload não pendente, objeto ausente no storage, ou tamanho/Content-Type divergente do declarado (mesmo código público para as quatro causas — a mensagem interna, não o código, distingue o motivo) |
 | `InvalidFileName`      | `FILE_INVALID_NAME`            |    — | Reservado — hoje coberto por `VALIDATION_ERROR` |
-| `UploadNotCompleted`   | `FILE_UPLOAD_NOT_COMPLETED`    |    — | Reservado |
+| `UploadNotCompleted`   | `FILE_UPLOAD_NOT_COMPLETED`    |  409 | Geração de link para um arquivo cujo upload ainda não foi concluído (`GenerateLinkAsync`) |
+
+### Anti-enumeração nas rotas públicas
+
+`PublicFilesController.GetPublicFile`/`DownloadPublicFile` (sem autenticação) lançam sempre a mesma exceção — `ResourceNotFoundException(FileErrorCode.NotFound, "Arquivo não disponível.")` — para token inexistente, arquivo expirado, arquivo removido, ou objeto ausente no S3. O código, a mensagem e o status HTTP são idênticos nos quatro casos; só a mensagem *interna* (nunca exposta) e o log (nunca com o token) variam. Isso preserva a garantia de segurança que já existia antes desta fase — ver `PublicFilesEndpointsTests.GetPublicFile_UnknownAndExpiredTokens_ReturnTheSameGenericBody` e `PublicFileDownloadEndpointsTests.DownloadPublicFile_UnknownAndExpiredTokens_ReturnTheSameGenericBody`.
 
 ## Validação (`ValidationErrorCode`)
 
@@ -85,8 +89,8 @@ Erros inesperados (uma exceção que não é uma das acima — EF Core, AWS SDK,
 
 ## Por que "reservado" para vários valores
 
-Vários enums acima existem porque o exercício pediu a padronização completa dos sete grupos (`AuthErrorCode`, `FileErrorCode`, `AuthorizationErrorCode`, `ValidationErrorCode`, `ResourceErrorCode`, `SystemErrorCode`, `RateLimitErrorCode`) como fundação estável para o futuro — mas esta fase focou a implementação real em autenticação/recuperação de senha (onde a mudança de comportamento é visível e testada). Os controllers de arquivos (`FilesController`) continuam usando o mecanismo `Result<T>`/`FailureReason` já existente antes desta fase (ver `docs/architecture.md`) — migrá-los para o novo mecanismo de exceções é possível a qualquer momento, reaproveitando os mesmos enums/`ErrorCodeCatalog` já documentados aqui, sem exigir nenhum enum novo.
+Vários enums acima existem porque o exercício pediu a padronização completa dos sete grupos (`AuthErrorCode`, `FileErrorCode`, `AuthorizationErrorCode`, `ValidationErrorCode`, `ResourceErrorCode`, `SystemErrorCode`, `RateLimitErrorCode`) como fundação estável para o futuro, mesmo onde a condição correspondente ainda não existe no sistema (ex.: conta desabilitada) ou já é coberta por outro mecanismo (`VALIDATION_ERROR`). Os fluxos de autenticação, recuperação de senha e **arquivos** (`FilesController`/`PublicFilesController`, incluindo upload, conclusão de upload, geração de link, acesso público e download) usam todos o mesmo mecanismo — `throw` de uma exceção tipada, capturada pelo `GlobalExceptionHandler` — não existe mais um segundo mecanismo de erro concorrente (`Result<T>`/`FailureReason`) para nenhum desses fluxos.
 
 ## Testes
 
-Cobertura garantida por `ErrorCodeCatalogTests` (todo código declarado tem mapeamento, nenhum código duplicado entre enums) e `AppExceptionTests` (cada exceção carrega o `HttpStatusCode`/`PublicCode`/enum corretos) em `FileSharing.UnitTests`, mais os testes de integração HTTP end-to-end em `FileSharing.ApiTests` (`Auth/PasswordResetEndpointsTests`, `Auth/PasswordResetEnumerationTests`, `Auth/PasswordResetRateLimitingTests`).
+Cobertura garantida por `ErrorCodeCatalogTests` (todo código declarado tem mapeamento, nenhum código duplicado entre enums) e `AppExceptionTests` (cada exceção carrega o `HttpStatusCode`/`PublicCode`/enum corretos) em `FileSharing.UnitTests`, mais os testes de integração HTTP end-to-end em `FileSharing.ApiTests` (`Auth/PasswordResetEndpointsTests`, `Auth/PasswordResetEnumerationTests`, `Auth/PasswordResetRateLimitingTests`, `Files/FilesEndpointsTests`, `Files/FilesQueryEndpointsTests`, `Files/PublicFilesEndpointsTests`, `Files/PublicFileDownloadEndpointsTests`).

@@ -1,4 +1,5 @@
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
 using FileSharing.Domain.Enums;
@@ -48,11 +49,10 @@ public class FilePublicLinkServiceTests : IDisposable
         var userId = Guid.NewGuid();
         var fileId = await SeedActiveFileAsync(userId);
 
-        var result = await _sut.GenerateLinkAsync(userId, fileId);
+        var response = await _sut.GenerateLinkAsync(userId, fileId);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal(fileId, result.Value!.FileId);
-        Assert.False(string.IsNullOrWhiteSpace(result.Value.AccessToken));
+        Assert.Equal(fileId, response.FileId);
+        Assert.False(string.IsNullOrWhiteSpace(response.AccessToken));
     }
 
     [Fact]
@@ -61,11 +61,11 @@ public class FilePublicLinkServiceTests : IDisposable
         var userId = Guid.NewGuid();
         var fileId = await SeedActiveFileAsync(userId);
 
-        var result = await _sut.GenerateLinkAsync(userId, fileId);
+        var response = await _sut.GenerateLinkAsync(userId, fileId);
 
         var file = await _dbContext.Files.SingleAsync(f => f.Id == fileId);
-        Assert.Equal(AccessTokenHasher.Hash(result.Value!.AccessToken), file.AccessTokenHash);
-        Assert.NotEqual(result.Value.AccessToken, file.AccessTokenHash);
+        Assert.Equal(AccessTokenHasher.Hash(response.AccessToken), file.AccessTokenHash);
+        Assert.NotEqual(response.AccessToken, file.AccessTokenHash);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class FilePublicLinkServiceTests : IDisposable
         var first = await _sut.GenerateLinkAsync(userId, fileId);
         var second = await _sut.GenerateLinkAsync(userId, fileId);
 
-        Assert.NotEqual(first.Value!.AccessToken, second.Value!.AccessToken);
+        Assert.NotEqual(first.AccessToken, second.AccessToken);
     }
 
     [Fact]
@@ -86,19 +86,19 @@ public class FilePublicLinkServiceTests : IDisposable
         var owner = Guid.NewGuid();
         var fileId = await SeedActiveFileAsync(owner);
 
-        var result = await _sut.GenerateLinkAsync(Guid.NewGuid(), fileId);
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.GenerateLinkAsync(Guid.NewGuid(), fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(GenerateLinkFailureReason.NotFound, result.FailureReason);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
     public async Task GenerateLinkAsync_Fails_WhenFileDoesNotExist()
     {
-        var result = await _sut.GenerateLinkAsync(Guid.NewGuid(), Guid.NewGuid());
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.GenerateLinkAsync(Guid.NewGuid(), Guid.NewGuid()));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(GenerateLinkFailureReason.NotFound, result.FailureReason);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
@@ -107,10 +107,9 @@ public class FilePublicLinkServiceTests : IDisposable
         var userId = Guid.NewGuid();
         var fileId = await SeedPendingFileAsync(userId);
 
-        var result = await _sut.GenerateLinkAsync(userId, fileId);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => _sut.GenerateLinkAsync(userId, fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(GenerateLinkFailureReason.Conflict, result.FailureReason);
+        Assert.Equal("FILE_UPLOAD_NOT_COMPLETED", exception.PublicCode);
     }
 
     [Fact]
@@ -119,10 +118,9 @@ public class FilePublicLinkServiceTests : IDisposable
         var userId = Guid.NewGuid();
         var fileId = await SeedActiveFileAsync(userId, completedAt: DateTimeOffset.UtcNow.AddHours(-25));
 
-        var result = await _sut.GenerateLinkAsync(userId, fileId);
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => _sut.GenerateLinkAsync(userId, fileId));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(GenerateLinkFailureReason.Conflict, result.FailureReason);
+        Assert.Equal("FILE_EXPIRED", exception.PublicCode);
     }
 
     [Fact]
@@ -132,23 +130,22 @@ public class FilePublicLinkServiceTests : IDisposable
         var fileId = await SeedActiveFileAsync(userId);
         var generated = await _sut.GenerateLinkAsync(userId, fileId);
 
-        var result = await _sut.GetByAccessTokenAsync(generated.Value!.AccessToken);
+        var response = await _sut.GetByAccessTokenAsync(generated.AccessToken);
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal(fileId, result.Value!.FileId);
+        Assert.Equal(fileId, response.FileId);
     }
 
     [Fact]
-    public async Task GetByAccessTokenAsync_ReturnsNotAvailable_ForAnUnknownToken()
+    public async Task GetByAccessTokenAsync_Throws_ForAnUnknownToken()
     {
-        var result = await _sut.GetByAccessTokenAsync("token-that-was-never-issued");
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.GetByAccessTokenAsync("token-that-was-never-issued"));
 
-        Assert.False(result.IsSuccess);
-        Assert.Null(result.Value);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
-    public async Task GetByAccessTokenAsync_ReturnsNotAvailable_ForAnExpiredFilesToken()
+    public async Task GetByAccessTokenAsync_Throws_ForAnExpiredFilesToken()
     {
         var userId = Guid.NewGuid();
         var fileId = await SeedActiveFileAsync(userId);
@@ -158,9 +155,7 @@ public class FilePublicLinkServiceTests : IDisposable
         _dbContext.Entry(file).Property("ExpiresAt").CurrentValue = DateTimeOffset.UtcNow.AddMinutes(-1);
         await _dbContext.SaveChangesAsync();
 
-        var result = await _sut.GetByAccessTokenAsync(generated.Value!.AccessToken);
-
-        Assert.False(result.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _sut.GetByAccessTokenAsync(generated.AccessToken));
     }
 
     [Fact]
@@ -174,10 +169,10 @@ public class FilePublicLinkServiceTests : IDisposable
         _dbContext.Entry(file).Property("ExpiresAt").CurrentValue = DateTimeOffset.UtcNow.AddMinutes(-1);
         await _dbContext.SaveChangesAsync();
 
-        var expiredResult = await _sut.GetByAccessTokenAsync(generated.Value!.AccessToken);
-        var unknownResult = await _sut.GetByAccessTokenAsync("some-token-that-does-not-exist");
+        var expiredException = await Assert.ThrowsAsync<ResourceNotFoundException>(() => _sut.GetByAccessTokenAsync(generated.AccessToken));
+        var unknownException = await Assert.ThrowsAsync<ResourceNotFoundException>(() => _sut.GetByAccessTokenAsync("some-token-that-does-not-exist"));
 
-        Assert.Equal(expiredResult.IsSuccess, unknownResult.IsSuccess);
-        Assert.Equal(expiredResult.Value, unknownResult.Value);
+        Assert.Equal(expiredException.PublicCode, unknownException.PublicCode);
+        Assert.Equal(expiredException.PublicMessage, unknownException.PublicMessage);
     }
 }

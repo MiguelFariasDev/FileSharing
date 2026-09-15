@@ -35,15 +35,11 @@ public class PublicFilesController : ControllerBase
     [HttpGet("{token}")]
     public async Task<IActionResult> GetPublicFile(string token, CancellationToken cancellationToken)
     {
-        var result = await _filePublicLinkService.GetByAccessTokenAsync(token, cancellationToken);
-
-        // Deliberately the exact same response — no message, no distinguishing detail — for
-        // an unknown token, an expired file, and a file that was removed. The token itself is
-        // never echoed back or logged.
-        if (!result.IsSuccess)
-            return NotFound();
-
-        return Ok(result.Value);
+        // Deliberately the exact same exception — same code, same generic message — for an
+        // unknown token, an expired file, and a file that was removed. The token itself is
+        // never echoed back or logged (GlobalExceptionHandler/FilePublicLinkService).
+        var response = await _filePublicLinkService.GetByAccessTokenAsync(token, cancellationToken);
+        return Ok(response);
     }
 
     [HttpGet("{token}/download")]
@@ -65,13 +61,9 @@ public class PublicFilesController : ControllerBase
         else if (userAgent.Length > Download.MaxUserAgentLength)
             userAgent = userAgent[..Download.MaxUserAgentLength];
 
-        var result = await _fileDownloadService.DownloadAsync(token, ipAddress, userAgent, cancellationToken);
-
         // Same generic response as GetPublicFile — unknown token, expired file, wrong status,
         // and object missing from storage are all indistinguishable from here.
-        if (!result.IsSuccess)
-            return NotFound();
-
-        return Ok(result.Value);
+        var response = await _fileDownloadService.DownloadAsync(token, ipAddress, userAgent, cancellationToken);
+        return Ok(response);
     }
 }

@@ -1,6 +1,7 @@
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Application.Common;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Notifications;
 using FileSharing.Application.Observability;
 using FileSharing.Application.Services.Files;
@@ -64,10 +65,9 @@ public class FileDownloadServiceTests : IDisposable
         SetupObjectExists();
         SetupPresignedDownloadUrl("https://mock-s3.test/download-here");
 
-        var result = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
+        var response = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal("https://mock-s3.test/download-here", result.Value!.DownloadUrl);
+        Assert.Equal("https://mock-s3.test/download-here", response.DownloadUrl);
 
         var download = await _dbContext.Downloads.SingleAsync(d => d.FileId == fileId);
         Assert.Equal(fileId, download.FileId);
@@ -76,10 +76,10 @@ public class FileDownloadServiceTests : IDisposable
     [Fact]
     public async Task DownloadAsync_Fails_ForUnknownToken()
     {
-        var result = await _sut.DownloadAsync("token-that-was-never-issued", "203.0.113.10", "TestAgent/1.0");
+        var exception = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync("token-that-was-never-issued", "203.0.113.10", "TestAgent/1.0"));
 
-        Assert.False(result.IsSuccess);
-        Assert.Null(result.Value);
+        Assert.Equal("FILE_NOT_FOUND", exception.PublicCode);
     }
 
     [Fact]
@@ -88,9 +88,8 @@ public class FileDownloadServiceTests : IDisposable
         var (_, _, _, accessToken) = await SeedActiveFileWithTokenAsync(completedAt: DateTimeOffset.UtcNow.AddHours(-25));
         SetupObjectExists();
 
-        var result = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
-
-        Assert.False(result.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0"));
     }
 
     [Fact]
@@ -105,9 +104,8 @@ public class FileDownloadServiceTests : IDisposable
         _dbContext.Entry(file).Property("Status").CurrentValue = FileStatus.PendingUpload;
         await _dbContext.SaveChangesAsync();
 
-        var result = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
-
-        Assert.False(result.IsSuccess);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0"));
     }
 
     [Fact]
@@ -116,9 +114,9 @@ public class FileDownloadServiceTests : IDisposable
         var (fileId, _, _, accessToken) = await SeedActiveFileWithTokenAsync();
         SetupObjectExists(exists: false);
 
-        var result = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0"));
 
-        Assert.False(result.IsSuccess);
         Assert.False(await _dbContext.Downloads.AnyAsync(d => d.FileId == fileId));
     }
 
@@ -128,11 +126,13 @@ public class FileDownloadServiceTests : IDisposable
         var (_, _, _, expiredToken) = await SeedActiveFileWithTokenAsync(completedAt: DateTimeOffset.UtcNow.AddHours(-25));
         SetupObjectExists();
 
-        var expiredResult = await _sut.DownloadAsync(expiredToken, "203.0.113.10", "TestAgent/1.0");
-        var unknownResult = await _sut.DownloadAsync("some-token-that-does-not-exist", "203.0.113.10", "TestAgent/1.0");
+        var expiredException = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(expiredToken, "203.0.113.10", "TestAgent/1.0"));
+        var unknownException = await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync("some-token-that-does-not-exist", "203.0.113.10", "TestAgent/1.0"));
 
-        Assert.Equal(expiredResult.IsSuccess, unknownResult.IsSuccess);
-        Assert.Equal(expiredResult.Value, unknownResult.Value);
+        Assert.Equal(expiredException.PublicCode, unknownException.PublicCode);
+        Assert.Equal(expiredException.PublicMessage, unknownException.PublicMessage);
     }
 
     [Fact]
@@ -298,7 +298,8 @@ public class FileDownloadServiceTests : IDisposable
     [Fact]
     public async Task DownloadAsync_InvalidToken_NeverNotifiesAnyone()
     {
-        await _sut.DownloadAsync("token-that-was-never-issued", "203.0.113.10", "TestAgent/1.0");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync("token-that-was-never-issued", "203.0.113.10", "TestAgent/1.0"));
 
         _notifierMock.Verify(
             n => n.NotifyDownloadAsync(It.IsAny<Guid>(), It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()),
@@ -311,7 +312,8 @@ public class FileDownloadServiceTests : IDisposable
         var (_, ownerUserId, _, accessToken) = await SeedActiveFileWithTokenAsync(completedAt: DateTimeOffset.UtcNow.AddHours(-25));
         SetupObjectExists();
 
-        await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0"));
 
         _notifierMock.Verify(
             n => n.NotifyDownloadAsync(ownerUserId, It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()),
@@ -324,7 +326,8 @@ public class FileDownloadServiceTests : IDisposable
         var (_, ownerUserId, _, accessToken) = await SeedActiveFileWithTokenAsync();
         SetupObjectExists(exists: false);
 
-        await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0"));
 
         _notifierMock.Verify(
             n => n.NotifyDownloadAsync(ownerUserId, It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()),
@@ -341,10 +344,9 @@ public class FileDownloadServiceTests : IDisposable
             .Setup(n => n.NotifyDownloadAsync(It.IsAny<Guid>(), It.IsAny<FileDownloadedNotification>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("simulated SignalR outage"));
 
-        var result = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
+        var response = await _sut.DownloadAsync(accessToken, "203.0.113.10", "TestAgent/1.0");
 
-        Assert.True(result.IsSuccess);
-        Assert.Equal("https://mock-s3.test/download-despite-notifier-failure", result.Value!.DownloadUrl);
+        Assert.Equal("https://mock-s3.test/download-despite-notifier-failure", response.DownloadUrl);
     }
 
     [Fact]
