@@ -434,7 +434,7 @@ src/
     Services/Platform/{Navigation,Clipboard,Share,MainThreadDispatcher}Service.cs
     Platforms/Android/{FolderPickerService,ActivityResultBridge}.cs
     Views/{Login,Register,Home,Upload,FileDetails,History}Page.xaml
-    Components/{GlassCard,FileCard,StatusBadge}.xaml
+    Components/{FileCard,StatusBadge}.xaml
     Converters/{IconKeyToEmojiConverter,StatusLabelToKindConverter,StringToBoolConverter,InvertedBoolConverter}.cs
     Resources/Raw/appsettings.json                  # Api:BaseUrl / Api:HubUrl — never a secret
     Resources/Styles/{Colors,Styles}.xaml            # blue/glass theme

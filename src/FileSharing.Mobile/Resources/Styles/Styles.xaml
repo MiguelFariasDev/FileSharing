@@ -114,9 +114,28 @@
         </Setter>
     </Style>
 
+    <!--
+        The "glass" card look (Fase 13 §8): a translucent white fill and a thin near-white
+        border. Applied directly to an inline <Border> at each call site instead of through a
+        reusable ContentView with an injected-content property (the previous GlassCard
+        component) — that indirection (ContentView -> Border -> ContentPresenter -> assigned
+        content) reproducibly hung the app forever on real Android hardware the moment real
+        content was assigned to it (never in an emulator; root-caused by isolating every element
+        of that file one at a time — removing Shadow, StrokeThickness, and even nested Borders
+        from the assigned content made no difference, so the bug is in the content-forwarding
+        mechanism itself, not in any one property). No Shadow either: Border + Shadow has its own
+        separate known Android hang (https://github.com/dotnet/maui/issues/21798, /issues/8563).
+    -->
+    <Style TargetType="Border" x:Key="GlassCardBorder">
+        <Setter Property="BackgroundColor" Value="{StaticResource GlassSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource GlassBorder}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 24" />
+        <Setter Property="Padding" Value="20" />
+    </Style>
+
     <!-- Wraps an Entry to give it the rounded, glassy "field" look used across Login/Register —
-         see Components/GlassCard for the actual reusable ContentView; this is only the
-         Border-level style applied inline where a full card is not needed. -->
+         this is only the Border-level style applied inline where a full card is not needed. -->
     <Style TargetType="Border" x:Key="FieldBorder">
         <Setter Property="BackgroundColor" Value="{StaticResource Gray50}" />
         <Setter Property="Stroke" Value="{StaticResource Gray200}" />

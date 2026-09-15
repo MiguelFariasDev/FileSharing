@@ -10,7 +10,7 @@
          just a bare technical list row. Bound entirely off FileItemViewModel (Fase 13 Core), so
          the same computed labels (RemainingLabel, StatusLabel, TypeLabel...) back both this card
          and the bottom sheet it opens. -->
-    <components:GlassCard>
+    <Border Style="{StaticResource GlassCardBorder}">
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14" x:DataType="viewmodels:FileItemViewModel" BindingContext="{Binding File, Source={x:Reference Root}}">
 
             <Border Grid.Column="0" WidthRequest="44" HeightRequest="44" StrokeShape="RoundRectangle 14"
@@ -48,6 +48,6 @@
                     CommandParameter="{Binding .}" />
 
         </Grid>
-    </components:GlassCard>
+    </Border>
 
 </ContentView>

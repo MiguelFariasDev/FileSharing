@@ -2,7 +2,6 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
-             xmlns:components="clr-namespace:FileSharing.Mobile.Components"
              x:Class="FileSharing.Mobile.Views.RegisterPage"
              x:DataType="viewmodels:RegisterViewModel"
              Shell.NavBarIsVisible="False"
@@ -19,7 +18,7 @@
                 <Label Text="Leva menos de um minuto." Style="{StaticResource Caption}" />
             </VerticalStackLayout>
 
-            <components:GlassCard>
+            <Border Style="{StaticResource GlassCardBorder}">
                 <VerticalStackLayout Spacing="16">
 
                     <VerticalStackLayout Spacing="6">
@@ -53,7 +52,7 @@
                     <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="{StaticResource Primary}" />
 
                 </VerticalStackLayout>
-            </components:GlassCard>
+            </Border>
 
         </VerticalStackLayout>
     </ScrollView>

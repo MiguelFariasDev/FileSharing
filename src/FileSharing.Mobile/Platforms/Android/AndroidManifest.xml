@@ -1,6 +1,19 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true"></application>
+	<!-- usesCleartextTraffic: needed only because this app currently talks to the FileSharing
+	     API over plain http:// (a local dev machine has no TLS certificate) — Android blocks
+	     cleartext HTTP by default since API 28. This is a development-only concession: before
+	     any real distribution build, the API should be served over HTTPS and this flag removed
+	     (or narrowed to a network_security_config.xml scoped to the dev machine's own IP). -->
+	<!-- allowBackup=false: Android's auto-backup mechanism conflicts with the
+	     EncryptedSharedPreferences file backing Microsoft.Maui.Storage.SecureStorage (used by
+	     AuthSession/SecureStorageService for the JWT), causing SecureStorage.GetAsync() to hang
+	     indefinitely on app startup on some devices (observed on this project's own Samsung
+	     Galaxy Note 20, Android 13) — a known .NET MAUI issue
+	     (https://github.com/dotnet/maui/issues/18817, /issues/17706). Disabling backup for this
+	     app is the documented workaround; SecureStorage itself (and its Keystore-backed
+	     encryption) is unaffected. -->
+	<application android:allowBackup="false" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true" android:usesCleartextTraffic="true"></application>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.INTERNET" />
 </manifest>

@@ -21,9 +21,11 @@
             <TapGestureRecognizer Tapped="OnScrimTapped" />
         </Grid.GestureRecognizers>
 
+        <!-- No Shadow: Border + Shadow hangs the app on Android (infinite arrange loop) — see
+             Components/GlassCard.xaml's remarks. -->
         <Border x:Name="SheetBorder" VerticalOptions="End" BackgroundColor="{StaticResource GlassSurfaceStrong}"
                 StrokeShape="RoundRectangle 28,28,0,0" Stroke="{StaticResource GlassBorder}" StrokeThickness="1"
-                Padding="24" Shadow="{StaticResource GlassShadow}">
+                Padding="24">
             <Border.GestureRecognizers>
                 <!-- Swallow taps on the sheet itself so they never bubble up to the scrim's
                      dismiss handler. -->
