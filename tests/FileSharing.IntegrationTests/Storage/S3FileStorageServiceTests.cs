@@ -53,7 +53,7 @@ public class S3FileStorageServiceTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15
         });
 
-        _sut = new S3FileStorageService(_s3Client, options, NullLogger<S3FileStorageService>.Instance);
+        _sut = new S3FileStorageService(_s3Client, _s3Client, options, NullLogger<S3FileStorageService>.Instance);
     }
 
     public Task InitializeAsync() => Task.CompletedTask;

@@ -1,18 +1,26 @@
+networks:
+  filesharing-net:
+    name: filesharing-net
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: filesharing-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: filesharing
-    # 5433 no host para não colidir com um PostgreSQL local já instalado na 5432.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em infrastructure/docker/.env (copie .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-filesharing}
+    # 5433 no host para não colidir com um PostgreSQL local já instalado na 5432. Só o host
+    # (e, via este mapeamento, quem roda `dotnet ef database update` fora do Docker) usa esta
+    # porta — dentro da rede filesharing-net, o serviço "postgres" é sempre alcançado pela 5432.
     ports:
       - "5433:5432"
     volumes:
       - filesharing-postgres-data:/var/lib/postgresql/data
+    networks:
+      - filesharing-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -31,6 +39,72 @@ services:
     volumes:
       - ./localstack-init:/etc/localstack/init/ready.d
       - filesharing-localstack-data:/var/lib/localstack
+    networks:
+      - filesharing-net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: src/FileSharing.Api/Dockerfile
+    container_name: filesharing-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Dentro da rede Docker, sempre pelo nome do serviço — nunca "localhost" (ver docs/development.md).
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-filesharing};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?}"
+      Jwt__SecretKey: ${JWT_SECRET_KEY:?Defina JWT_SECRET_KEY em infrastructure/docker/.env (copie .env.example) — apenas para desenvolvimento}
+      # AWS__ServiceURL: como a Api (dentro do container) fala com o LocalStack — nome do
+      # serviço, nunca localhost. AWS__PublicServiceURL: host embutido nas presigned URLs
+      # devolvidas ao navegador/app — precisa ser algo que o *host*/emulador Android alcance,
+      # nunca o nome de serviço interno (ver StorageExtensions.cs/S3FileStorageService.cs).
+      AWS__ServiceURL: "http://localstack:4566"
+      AWS__PublicServiceURL: "http://localhost:4566"
+      AWS__AccessKey: test
+      AWS__SecretKey: test
+      AWS__Region: us-east-1
+      FileStorage__BucketName: filesharing-dev
+      FileStorage__Region: us-east-1
+      PasswordReset__WebResetUrlBase: "http://localhost:5287/reset-password"
+    ports:
+      - "5105:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks:
+      - filesharing-net
+    # O Dockerfile já define um HEALTHCHECK — repetido aqui apenas para deixar explícito o que
+    # `depends_on: condition: service_healthy` do serviço "web" está de fato esperando.
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: src/FileSharing.Web/Dockerfile
+    container_name: filesharing-web
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Nome do serviço, nunca localhost — este é o Blazor Server (processo .NET) chamando a
+      # Api de container para container; o *navegador* nunca faz essa chamada diretamente.
+      Api__BaseUrl: "http://api:8080"
+    ports:
+      - "5287:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - filesharing-net
 
 volumes:
   filesharing-postgres-data:

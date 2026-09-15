@@ -1,0 +1,94 @@
+name: Infrastructure — Docker Compose E2E
+
+# Não é o CI de código (isso é backend.yml/web.yml/mobile.yml) — este workflow valida a
+# *composição* dos containers em si: builda as duas imagens de produção, sobe a stack completa
+# (Api + Web + PostgreSQL + LocalStack) exatamente como um desenvolvedor faria localmente, e
+# roda o fluxo E2E real contra ela (infrastructure/docker/e2e-smoke-test.sh). Isso cobre o que
+# testes unitários/de integração não cobrem: rede Docker entre serviços, variáveis de ambiente
+# do Compose, e o host público embutido nas presigned URLs (AWS__PublicServiceURL). Ver
+# docs/ci-cd.md.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: infrastructure-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  compose-e2e:
+    name: Docker Compose build + E2E smoke test
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: filesharing
+      JWT_SECRET_KEY: ci-only-not-a-real-secret-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Api + Web images
+        working-directory: infrastructure/docker
+        run: docker compose build api web
+
+      - name: Bring up full stack
+        working-directory: infrastructure/docker
+        run: docker compose up -d
+
+      - name: Wait for all services to be healthy
+        working-directory: infrastructure/docker
+        run: |
+          for i in $(seq 1 40); do
+            STATUSES=$(docker compose ps --format '{{.Name}} {{.Health}}')
+            echo "--- tentativa $i/40 ---"
+            echo "$STATUSES"
+            # Considera pronto só quando há pelo menos uma linha e a última coluna (status de
+            # saúde) de TODAS elas é exatamente "healthy" — nunca vazio, "starting" ou
+            # "unhealthy" (awk evita o falso positivo de "healthy$" também casar "unhealthy").
+            if [ -n "$STATUSES" ] && echo "$STATUSES" | awk '{ if ($NF != "healthy") exit 1 }'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Nem todos os serviços ficaram saudáveis a tempo."
+          docker compose logs
+          exit 1
+
+      - name: Install EF Core tool + apply migrations
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.11
+          ~/.dotnet/tools/dotnet-ef database update \
+            -p src/FileSharing.Infrastructure -s src/FileSharing.Api \
+            --connection "Host=localhost;Port=5433;Database=filesharing;Username=postgres;Password=postgres"
+
+      - name: Run E2E smoke test against the containerized stack
+        working-directory: infrastructure/docker
+        run: ./e2e-smoke-test.sh
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: infrastructure/docker
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        working-directory: infrastructure/docker
+        run: docker compose down -v

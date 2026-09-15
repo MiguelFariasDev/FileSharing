@@ -1,6 +1,6 @@
 # Segurança
 
-Documentação da segurança implementada até a Etapa 13 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening + Observability & Diagnostics + Mobile Android) e a fase seguinte (Recuperação de senha + padronização de erros).
+Documentação da segurança implementada até a Etapa 14 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard + Security Hardening + Observability & Diagnostics + Mobile Android + Docker/preparação para AWS) e a fase de recuperação de senha + padronização de erros.
 
 ---
 
@@ -227,6 +227,24 @@ Documentação completa em `docs/mobile.md`. Resumo do que a auditoria desta eta
 - **`FileSharingApiClient` (Mobile) não tem nenhuma dependência de `ILogger`** — não existe caminho de código nele que pudesse logar o header `Authorization`, o JWT, ou uma presigned URL.
 - **`MobileSecretsScanTests`** (`tests/FileSharing.Mobile.Tests/Security/`) varre automaticamente o código-fonte do Mobile por padrões de segredo (prefixo de AWS Access Key, `aws_secret_access_key`, cabeçalhos PEM de chave privada) e confirma que `Resources/Raw/appsettings.json` só contém as duas chaves esperadas (`BaseUrl`/`HubUrl`), nenhuma delas parecendo uma credencial.
 - **Busca manual adicional** (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `JWT_SECRET`, `secret`, `token`, `Authorization`, `presigned`, `connection string`) em todo `src/FileSharing.Mobile`/`src/FileSharing.Mobile.Core` não encontrou nenhum valor real — só identificadores de código e comentários explicativos legítimos (ex.: a propriedade `AccessToken` de um DTO, o header `Authorization` sendo corretamente *setado* com o JWT do usuário).
+
+## Docker + preparação para AWS (Etapa 14)
+
+Etapa de containerização/preparação para deploy — não uma nova funcionalidade. A auditoria desta etapa revisou toda a superfície de segurança já documentada acima sob a ótica de "isso continua correto rodando em container / atrás de um ALB?" — a resposta foi sim para quase tudo (ver checklist em `docs/infrastructure.md`), com duas lacunas reais corrigidas:
+
+- **Forwarded Headers ausente — corrigido.** Sem `UseForwardedHeaders`, atrás de um ALB (que sempre está entre o cliente e o ECS em produção), `HttpContext.Connection.RemoteIpAddress` passaria a refletir sempre o IP do ALB — quebrando silenciosamente o particionamento por IP do rate limiting (`Auth`/`PasswordReset`, Etapa 10) e o IP registrado em `downloads.IpAddress` (Etapa 5, usado para auditoria de download). Corrigido em ambos `Program.cs` (Api e Web). `KnownIPNetworks`/`KnownProxies` são explicitamente limpos, então a aplicação confia no `X-Forwarded-For` de qualquer origem de rede — isso é seguro porque a fronteira real de confiança é o **Security Group** do ECS (só aceita tráfego do próprio ALB, ver `docs/infrastructure.md`), não uma allowlist de IP na aplicação (o ALB não tem IP fixo conhecido com antecedência). Sem um proxy na frente (dev local), esses headers nunca chegam — nenhuma mudança de comportamento observável fora desse cenário.
+- **Presigned URL apontando para um host inalcançável de fora do Docker — corrigido.** Containerizar o LocalStack introduziu um cenário novo: o endpoint interno usado pela Api para chamadas reais (`localstack:4566`) não é o mesmo endereço que um navegador/Mobile fora da rede Docker consegue alcançar. A correção (cliente `IAmazonS3` de presign dedicado, `AWS:PublicServiceURL`) é puramente uma mudança de **qual host é assinado**, nunca de política de acesso — o bucket continua privado, a assinatura continua sendo uma operação HMAC local, e em produção (S3 real, sem LocalStack) esse segundo endpoint nem é configurado. Ver `docs/architecture.md` para o detalhe técnico completo.
+
+O que a auditoria confirmou já estar correto e **não precisou de nenhuma mudança**:
+
+- **Nenhum segredo em imagem Docker.** Nenhum `Dockerfile` (`src/FileSharing.Api/Dockerfile`, `src/FileSharing.Web/Dockerfile`) define `ENV` com senha, chave ou connection string — toda configuração sensível chega em tempo de execução (variável de ambiente no Compose local; Secrets Manager + injeção do ECS em produção, ver `docs/infrastructure.md`). `.dockerignore` também exclui explicitamente `.env*`/`appsettings.Development.json*` do contexto de build, então nenhum desses arquivos poderia acidentalmente parar dentro de uma camada da imagem mesmo por engano.
+- **Container roda como usuário não-root** (`USER app`, já o padrão da imagem `aspnet:10.0` desde o .NET 8 — declarado explicitamente em vez de depender implicitamente disso).
+- **Bucket S3/LocalStack continua privado** — a containerização não introduziu nenhuma chamada nova de ACL/política de bucket; o mesmo raciocínio da seção "Upload de arquivos e armazenamento" acima se aplica sem alteração.
+- **Sem Hangfire Dashboard público** — inalterado (`app.UseHangfireDashboard()` continua nunca sendo chamado).
+- **`AWS:AccessKey`/`AWS:SecretKey` continuam vazios em produção** — o SDK já cai na cadeia padrão de credenciais (Task Role do ECS) sem precisar de nenhuma chave explícita, comportamento que já existia antes desta etapa (`StorageExtensions.BuildS3Client`).
+- **Nenhum log novo adicionado nesta etapa** que pudesse introduzir vazamento — os únicos pontos de código tocados (`StorageExtensions`, `S3FileStorageService`, ambos `Program.cs`) não adicionaram nenhuma chamada a `ILogger`. A política de "o que nunca aparece em log" (Etapa 12, seção acima) continua válida sem alteração quando o destino do log muda de console local para CloudWatch Logs via `awslogs` — é só o transporte que muda, nunca o conteúdo.
+- **IAM least-privilege documentado, não implementado** (nenhum recurso AWS real foi criado) — políticas concretas (Task Execution Role vs. Task Role, nunca `AdministratorAccess`) estão em `docs/infrastructure.md`.
+- **Security Groups least-privilege documentados** (Internet→ALB:443 apenas, ALB→ECS:8080 apenas, ECS→RDS:5432 apenas, RDS nunca exposto à Internet) — ver `docs/infrastructure.md`.
 
 ### Limitação conhecida do LocalStack Community (dev only)
 

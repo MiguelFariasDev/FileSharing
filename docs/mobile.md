@@ -197,4 +197,14 @@ dotnet build src/FileSharing.Mobile -f net10.0-android -t:Run
 dotnet build src/FileSharing.Mobile -f net10.0-android
 ```
 
-Pré-requisito: `infrastructure/docker/docker-compose.yml` (PostgreSQL + LocalStack) e a API (`dotnet run --project src/FileSharing.Api`) já rodando — `Resources/Raw/appsettings.json` aponta para `10.0.2.2:5105` por padrão, o alias do emulador para o `localhost` da máquina host.
+Pré-requisito: a API acessível na porta `5105` — via `dotnet run --project src/FileSharing.Api` (com `infrastructure/docker/docker-compose.yml` subindo só PostgreSQL + LocalStack) **ou**, desde a Etapa 14, via a Api já containerizada (`docker compose up -d`, ver `docs/development.md`) — os dois cenários expõem a mesma porta `5105` no host, então `Resources/Raw/appsettings.json` não muda entre eles. `10.0.2.2` continua sendo o alias do emulador para o `localhost` da máquina host em ambos os casos.
+
+## Conectividade revisada na Etapa 14 (Docker + AWS)
+
+Nenhuma mudança de código no Mobile — só uma confirmação de que a containerização da Api/Web não quebra nada:
+
+- **O Mobile nunca é containerizado** (correto — app nativo, não um serviço de longa duração) e não foi alterado por esta etapa.
+- **Emulador Android → Api containerizada:** idêntico ao cenário não-containerizado (`10.0.2.2:5105`), porque a Api continua expondo a mesma porta `5105` no host via `docker-compose.yml`. A única ressalva: se `AWS__PublicServiceURL` estiver configurado como `http://localhost:4566` (o padrão do `docker-compose.yml`, pensado para o **navegador** no host), uma presigned URL consumida pelo **emulador** precisaria de `10.0.2.2:4566` em vez de `localhost:4566` — para testar upload/download real a partir do emulador contra a stack Docker, ajuste `AWS__PublicServiceURL` no `docker-compose.yml` para `http://10.0.2.2:4566` antes de subir a stack (ver tabela de endereços em `docs/development.md`).
+- **Dispositivo físico → Api containerizada:** IP da máquina host na rede local, igual ao cenário não-containerizado; mesma ressalva de `AWS__PublicServiceURL` acima, trocando `10.0.2.2` pelo IP real da máquina.
+- **Produção (AWS, ver `docs/infrastructure.md`):** `BaseUrl`/`HubUrl` apontam para o domínio HTTPS público por trás do ALB — sem nenhum alias de emulador, sem `AWS:PublicServiceURL` (o S3 real já tem um único endpoint público). HTTPS é obrigatório; SignalR continua funcionando sobre WebSocket através do ALB (ver `docs/deployment.md`). Upload direto ao S3 via presigned URL não muda em nada — o Mobile nunca soube (nem precisa saber) se está falando com LocalStack ou S3 real.
+- **Nada de App Links/Universal Links ou revogação de JWT foi adicionado nesta etapa** — ambos continuam deliberadamente fora de escopo, como já documentado na limitação acima.

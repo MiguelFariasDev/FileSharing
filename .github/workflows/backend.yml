@@ -1,0 +1,390 @@
+name: Backend CI/CD
+
+# Escopo deste workflow: Domain, Application, Infrastructure, Api (Web e Mobile têm workflows
+# próprios — web.yml/mobile.yml — porque cada um tem dependências de SDK/workload diferentes que
+# não fazem sentido misturar aqui; ver docs/ci-cd.md). CI roda em qualquer Pull Request para main;
+# CD (build+push+deploy) só roda em push para main, e só depois que o CI do mesmo push passou.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancela execuções de CI supérfluas de um PR que recebeu novos commits, mas nunca cancela um
+# deploy em andamento em main (uma segunda execução em main aguarda a anterior via o job `deploy`,
+# que tem seu próprio grupo de concurrency mais abaixo).
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # CI — restore, build, format, dependency audit. Roda em todo PR e em todo push para main.
+  # Falha cedo: cada etapa crítica é um step próprio, sem continue-on-error.
+  # ---------------------------------------------------------------------------------------------
+  validate:
+    name: Build, format & audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Sem packages.lock.json neste repositório (Central Package Management via
+      # Directory.Packages.props cobre a fixação de versão) — cache manual chaveado pelos
+      # arquivos de projeto/versões em vez do cache nativo do setup-dotnet, que exige lock files.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Só os projetos que este workflow cobre — nunca src/FileSharing.Mobile: seu TargetFramework
+      # (net10.0-android, condicionalmente net10.0-ios/maccatalyst fora do Linux) exige o workload
+      # MAUI, que só é instalado no runner de mobile.yml. Restaurar/compilar a solução inteira
+      # aqui falharia neste runner sem esse workload.
+      - name: Restore
+        run: dotnet restore src/FileSharing.Api/FileSharing.Api.csproj
+
+      - name: Build
+        run: dotnet build src/FileSharing.Api/FileSharing.Api.csproj --no-restore -c Release
+
+      # dotnet format precisa reavaliar o grafo de MSBuild do projeto informado — chamado por
+      # projeto (nunca pela .slnx inteira) para evitar o mesmo problema do workload do Mobile.
+      - name: Format validation
+        run: |
+          set -e
+          for proj in \
+            src/FileSharing.Domain/FileSharing.Domain.csproj \
+            src/FileSharing.Application/FileSharing.Application.csproj \
+            src/FileSharing.Infrastructure/FileSharing.Infrastructure.csproj \
+            src/FileSharing.Api/FileSharing.Api.csproj \
+            tests/FileSharing.UnitTests/FileSharing.UnitTests.csproj \
+            tests/FileSharing.ApiTests/FileSharing.ApiTests.csproj \
+            tests/FileSharing.IntegrationTests/FileSharing.IntegrationTests.csproj; do
+            echo "::group::dotnet format $proj"
+            dotnet format "$proj" --verify-no-changes --no-restore || FAILED_FORMAT="$FAILED_FORMAT $proj"
+            echo "::endgroup::"
+          done
+          if [ -n "$FAILED_FORMAT" ]; then
+            echo "::error::Formatação inválida em:$FAILED_FORMAT — rode 'dotnet format <projeto>' localmente e comite o resultado."
+            exit 1
+          fi
+
+      # Verifica pacotes NuGet (incluindo transitivos) com vulnerabilidades conhecidas.
+      # `dotnet list package --vulnerable` não sinaliza falha via exit code por padrão — o grep
+      # abaixo é o que efetivamente faz o workflow falhar quando algo é encontrado.
+      - name: Dependency / security audit (NuGet)
+        run: |
+          set -eo pipefail
+          OUTPUT=$(dotnet list src/FileSharing.Api/FileSharing.Api.csproj package --vulnerable --include-transitive 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "has the following vulnerable packages"; then
+            echo "::error::Pacotes NuGet vulneráveis encontrados — ver o output acima (pacote, versão, severidade). Avaliar upgrade ou pin em Directory.Packages.props antes de prosseguir."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------------------------
+  # Testes que não dependem de infraestrutura externa — rápidos, sempre rodam.
+  # ---------------------------------------------------------------------------------------------
+  unit-and-api-tests:
+    name: Unit & Api tests
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # FileSharing.UnitTests: puro Domain/Application/Infrastructure, sem I/O externo.
+      - name: Test — FileSharing.UnitTests
+        run: dotnet test tests/FileSharing.UnitTests/FileSharing.UnitTests.csproj -c Release
+
+      # FileSharing.ApiTests: WebApplicationFactory com EF Core InMemory e S3/e-mail/notifier
+      # mockados (CustomWebApplicationFactory) — não precisa de Postgres/LocalStack reais.
+      - name: Test — FileSharing.ApiTests
+        run: dotnet test tests/FileSharing.ApiTests/FileSharing.ApiTests.csproj -c Release
+
+  # ---------------------------------------------------------------------------------------------
+  # Testes de integração — precisam de PostgreSQL e LocalStack reais (as connection strings estão
+  # hardcoded para localhost:5433/localhost:4566 nos próprios arquivos de teste, replicando de
+  # propósito os mesmos endereços do Docker Compose local — ver docs/development.md). Reaproveita
+  # infrastructure/docker/docker-compose.yml (só os serviços postgres/localstack) em vez de
+  # redefinir os mesmos containers via `services:` do GitHub Actions, para nunca divergir da
+  # configuração usada localmente.
+  # ---------------------------------------------------------------------------------------------
+  integration-tests:
+    name: Integration tests (PostgreSQL + LocalStack)
+    runs-on: ubuntu-latest
+    needs: validate
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: filesharing
+      JWT_SECRET_KEY: ci-only-not-a-real-secret-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.0.11
+
+      - name: Start PostgreSQL + LocalStack (Docker Compose)
+        working-directory: infrastructure/docker
+        run: docker compose up -d postgres localstack
+
+      - name: Wait for PostgreSQL + LocalStack to be healthy
+        working-directory: infrastructure/docker
+        run: |
+          for i in $(seq 1 30); do
+            POSTGRES_STATUS=$(docker inspect -f '{{.State.Health.Status}}' filesharing-postgres 2>/dev/null || echo "starting")
+            LOCALSTACK_STATUS=$(docker inspect -f '{{.State.Health.Status}}' filesharing-localstack 2>/dev/null || echo "starting")
+            echo "postgres=$POSTGRES_STATUS localstack=$LOCALSTACK_STATUS (tentativa $i/30)"
+            if [ "$POSTGRES_STATUS" = "healthy" ] && [ "$LOCALSTACK_STATUS" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::PostgreSQL/LocalStack não ficaram saudáveis a tempo."
+          docker compose logs
+          exit 1
+
+      # Os testes de integração assumem o schema já migrado (nenhum deles chama Migrate/
+      # EnsureCreated) — mesmo fluxo manual documentado em docs/development.md, só automatizado.
+      - name: Apply EF Core migrations
+        run: |
+          ~/.dotnet/tools/dotnet-ef database update \
+            -p src/FileSharing.Infrastructure -s src/FileSharing.Api \
+            --connection "Host=localhost;Port=5433;Database=filesharing;Username=postgres;Password=postgres"
+
+      - name: Test — FileSharing.IntegrationTests
+        run: dotnet test tests/FileSharing.IntegrationTests/FileSharing.IntegrationTests.csproj -c Release
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: infrastructure/docker
+        run: docker compose logs
+
+      - name: Tear down Docker Compose
+        if: always()
+        working-directory: infrastructure/docker
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------------------------
+  # Valida que a imagem Docker de produção da Api continua construindo. Roda em todo PR (só build,
+  # sem push) e em todo push para main (build + push para ECR, feito pelo job seguinte).
+  # ---------------------------------------------------------------------------------------------
+  docker-build:
+    name: Docker build (Api)
+    runs-on: ubuntu-latest
+    needs: [unit-and-api-tests, integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (validation only, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/FileSharing.Api/Dockerfile
+          push: false
+          tags: filesharing-api:${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  # ---------------------------------------------------------------------------------------------
+  # CD — só em push para main, só depois que build/testes/format/audit/docker-build já passaram
+  # neste mesmo push. Publica no ECR e implanta no ECS via GitHub OIDC (nenhuma AWS key
+  # permanente). Requer o ambiente "production" configurado (Settings → Environments) com a
+  # variável AWS_ROLE_TO_ASSUME — sem ela, o job é pulado (skip explícito, não uma falha), porque
+  # nenhum recurso AWS real foi provisionado ainda (ver docs/infrastructure.md) e este workflow
+  # precisa continuar utilizável antes disso existir. Ver docs/ci-cd.md para o passo a passo de
+  # configuração quando o deploy real for habilitado.
+  # ---------------------------------------------------------------------------------------------
+  deploy:
+    name: Deploy Api to ECS
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    concurrency:
+      group: production-deploy-api
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: filesharing-api
+      ECS_CLUSTER: filesharing-cluster
+      ECS_SERVICE: filesharing-api
+      ECS_TASK_FAMILY: filesharing-api
+      ECS_CONTAINER_NAME: api
+    steps:
+      - name: Skip if AWS deployment is not configured yet
+        id: gate
+        run: |
+          if [ -z "${{ vars.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "::warning::AWS_ROLE_TO_ASSUME não configurado no ambiente 'production' — deploy pulado. Ver docs/ci-cd.md."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip == 'false'
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.gate.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: steps.gate.outputs.skip == 'false'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.skip == 'false'
+
+      # Tag pelo SHA do commit (nunca só "latest") — o ECS passa a rodar exatamente esta imagem,
+      # e o SHA fica rastreável até o commit/PR que a gerou. Ver docs/ci-cd.md, seção "Tagging".
+      - name: Build and push image
+        if: steps.gate.outputs.skip == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/FileSharing.Api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # Baixa a Task Definition JÁ EXISTENTE no ECS (não um JSON reconstruído do zero neste
+      # repositório) — preserva environment variables, secrets, IAM roles, portas, health check,
+      # logging, CPU/memory e configuração de rede exatamente como já estão configurados no ECS;
+      # só a imagem do container é substituída.
+      - name: Download current task definition
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
+
+      - name: Render new image into task definition
+        if: steps.gate.outputs.skip == 'false'
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
+          image: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # Registra a task definition renderizada acima como uma revisão real no ECS — necessário
+      # para poder referenciá-la no run-task da migração abaixo. A action de deploy mais adiante
+      # registra a mesma definição de novo (uma segunda revisão idêntica); é uma pequena
+      # redundância aceita deliberadamente em troca de não precisar orquestrar manualmente o que
+      # a action já faz de forma testada.
+      - name: Register task definition revision
+        if: steps.gate.outputs.skip == 'false'
+        id: register-task-def
+        run: |
+          TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "file://${{ steps.render-task-def.outputs.task-definition }}" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$TASK_DEF_ARN" >> "$GITHUB_OUTPUT"
+
+      # Passo controlado de migração — uma task ECS one-off (nunca automático no startup do
+      # ECS Service), reaproveitando a mesma revisão/imagem recém-registrada, mas sobrescrevendo
+      # o comando do container para `dotnet FileSharing.Api.dll migrate` (ver Program.cs). Roda
+      # dentro da mesma VPC/Security Group da task normal, o que permite alcançar o RDS mesmo ele
+      # nunca sendo exposto à Internet. Ver docs/ci-cd.md, seção "Migrations".
+      - name: Run database migrations (one-off ECS task)
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "${{ steps.register-task-def.outputs.arn }}" \
+            --launch-type FARGATE \
+            --network-configuration "${{ vars.ECS_NETWORK_CONFIGURATION }}" \
+            --overrides "{\"containerOverrides\":[{\"name\":\"$ECS_CONTAINER_NAME\",\"command\":[\"dotnet\",\"FileSharing.Api.dll\",\"migrate\"]}]}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Task de migração terminou com exit code $EXIT_CODE — ver CloudWatch Logs ($ECS_TASK_FAMILY) antes de prosseguir com o deploy."
+            exit 1
+          fi
+          echo "Migração concluída com sucesso (exit code 0)."
+
+      - name: Deploy to ECS
+        if: steps.gate.outputs.skip == 'false'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 10
+
+      # aws-actions/amazon-ecs-deploy-task-definition já falha o job se o serviço não estabilizar
+      # (wait-for-service-stability) — os passos abaixo são uma confirmação adicional, direta, de
+      # que a aplicação está de fato respondendo, não só que o ECS considera as tasks "running".
+      - name: Health check
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          for i in $(seq 1 10); do
+            if curl --fail --silent "https://${{ vars.API_PUBLIC_HOSTNAME }}/health/ready"; then
+              echo "Health check OK."
+              exit 0
+            fi
+            echo "Tentativa $i/10 falhou, aguardando..."
+            sleep 10
+          done
+          echo "::error::/health/ready não respondeu com sucesso após o deploy."
+          exit 1
+
+      - name: Smoke test
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          set -e
+          curl --fail --silent "https://${{ vars.API_PUBLIC_HOSTNAME }}/health/live" > /dev/null
+          curl --fail --silent "https://${{ vars.API_PUBLIC_HOSTNAME }}/health/ready" > /dev/null
+          echo "Smoke test OK — /health/live e /health/ready respondendo depois do deploy."

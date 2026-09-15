@@ -1,0 +1,30 @@
+# Build output — always rebuilt inside the image, never copied in from the host (mixing a
+# host-built net10.0-android or Debug artifact into a Linux Release image is a common, confusing
+# source of "works on my machine" container bugs).
+**/bin/
+**/obj/
+
+# Never needed by either Dockerfile (FileSharing.Api/FileSharing.Web only COPY the specific
+# projects they reference) — excluding them keeps the build context small and the cache stable
+# across changes that have nothing to do with either image.
+src/FileSharing.Mobile/
+src/FileSharing.Mobile.Core/
+tests/
+docs/
+infrastructure/
+
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.md
+!README.md
+
+# Local-only secrets/config — must never end up inside an image layer.
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/appsettings.Development.json.example

@@ -1,6 +1,7 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using FileSharing.Application.Abstractions.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -15,13 +16,33 @@ namespace FileSharing.Infrastructure.Storage;
 /// </summary>
 public class S3FileStorageService : IFileStorageService
 {
+    /// <summary>DI key for a second IAmazonS3 registration used only to sign presigned URLs — see StorageExtensions/PresignKeyedServiceName.</summary>
+    public const string PresignClientKey = "s3-presign";
+
     private readonly IAmazonS3 _s3Client;
+
+    // A presigned URL's signature covers the Host it was signed for — rewriting the URL's host
+    // after signing would invalidate it. When the API talks to S3 over one hostname (a Docker
+    // Compose service name/internal DNS, reachable only from other containers) but the
+    // presigned URL must be usable from outside that network (a browser on the host, a Mobile
+    // emulator/device), the fix is to *sign* with a client configured for the externally-reachable
+    // endpoint in the first place — GetPreSignedURL is a local HMAC computation, so this never
+    // makes a network call against that endpoint, it only changes what host ends up in the URL
+    // and in the signature. In production (no PublicServiceURL configured) this is the exact
+    // same client as _s3Client, so there is no behavioral difference at all.
+    private readonly IAmazonS3 _presignClient;
+
     private readonly FileStorageOptions _options;
     private readonly ILogger<S3FileStorageService> _logger;
 
-    public S3FileStorageService(IAmazonS3 s3Client, IOptions<FileStorageOptions> options, ILogger<S3FileStorageService> logger)
+    public S3FileStorageService(
+        IAmazonS3 s3Client,
+        [FromKeyedServices(PresignClientKey)] IAmazonS3 presignClient,
+        IOptions<FileStorageOptions> options,
+        ILogger<S3FileStorageService> logger)
     {
         _s3Client = s3Client;
+        _presignClient = presignClient;
         _options = options.Value;
         _logger = logger;
     }
@@ -45,15 +66,17 @@ public class S3FileStorageService : IFileStorageService
         // The SDK defaults presigned URLs to https regardless of the configured service
         // endpoint's scheme. Honor an explicit http endpoint (e.g. a local S3-compatible
         // service without TLS) instead of forcing a scheme mismatch on the caller.
-        if (Uri.TryCreate(_s3Client.Config.ServiceURL, UriKind.Absolute, out var serviceUri) &&
+        if (Uri.TryCreate(_presignClient.Config.ServiceURL, UriKind.Absolute, out var serviceUri) &&
             serviceUri.Scheme == Uri.UriSchemeHttp)
         {
             request.Protocol = Protocol.HTTP;
         }
 
         // GetPreSignedURL is a local HMAC computation — no network call is made, so no
-        // cancellation point exists to honor cancellationToken here.
-        var url = _s3Client.GetPreSignedURL(request);
+        // cancellation point exists to honor cancellationToken here. Signed with _presignClient,
+        // not _s3Client — see the field's remarks for why (Docker-internal vs externally-reachable
+        // endpoint).
+        var url = _presignClient.GetPreSignedURL(request);
 
         // Never the URL itself (it carries the StorageKey plus AWS signature parameters).
         _logger.LogDebug("Presigned upload URL created. ExpiresAt={ExpiresAt}", expiresAt);
@@ -75,15 +98,17 @@ public class S3FileStorageService : IFileStorageService
             Expires = expiresAt
         };
 
-        if (Uri.TryCreate(_s3Client.Config.ServiceURL, UriKind.Absolute, out var serviceUri) &&
+        if (Uri.TryCreate(_presignClient.Config.ServiceURL, UriKind.Absolute, out var serviceUri) &&
             serviceUri.Scheme == Uri.UriSchemeHttp)
         {
             request.Protocol = Protocol.HTTP;
         }
 
         // GetPreSignedURL is a local HMAC computation — no network call is made, so no
-        // cancellation point exists to honor cancellationToken here.
-        var url = _s3Client.GetPreSignedURL(request);
+        // cancellation point exists to honor cancellationToken here. Signed with _presignClient,
+        // not _s3Client — see the field's remarks for why (Docker-internal vs externally-reachable
+        // endpoint).
+        var url = _presignClient.GetPreSignedURL(request);
 
         // Never the URL itself (it carries the StorageKey plus AWS signature parameters).
         _logger.LogDebug("Presigned download URL created. ExpiresAt={ExpiresAt}", expiresAt);

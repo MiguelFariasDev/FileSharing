@@ -1,5 +1,6 @@
 using FileSharing.Web.Components;
 using FileSharing.Web.Extensions;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,6 +10,24 @@ builder.Services.AddRazorComponents()
 builder.Services.AddApplicationServices(builder.Configuration);
 
 var app = builder.Build();
+
+// Etapa 14: mesma justificativa do FileSharing.Api — necessário para que UseHttpsRedirection
+// abaixo não entre em loop de redirecionamento atrás de um Application Load Balancer (o
+// tráfego ALB→ECS chega como HTTP simples; sem isto, a aplicação nunca saberia que o cliente
+// original já usou HTTPS). Sem efeito em desenvolvimento local (sem proxy na frente).
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
+
+// Liveness only (a Web não tem dependência de leitura/escrita própria — só chama a Api, cuja
+// própria saúde já é verificada em /health/ready no lado dela) — usado pelo health check do
+// Target Group do ALB/ECS. Antes de qualquer middleware de segurança/HTTPS redirect: um
+// orquestrador não deve precisar de HTTPS para checar liveness.
+app.MapGet("/health/live", () => Results.Ok("Healthy")).AllowAnonymous();
 
 // Applied first so every response — including error pages — carries these headers.
 // 'unsafe-inline' is required in two narrow, documented spots: script-src because Blazor's

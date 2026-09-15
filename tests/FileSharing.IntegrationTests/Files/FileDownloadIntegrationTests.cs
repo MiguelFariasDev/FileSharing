@@ -95,7 +95,7 @@ public class FileDownloadIntegrationTests : IAsyncLifetime
             PresignedUploadExpirationMinutes = 15,
             DownloadUrlExpirationSeconds = 300
         });
-        _storageService = new S3FileStorageService(_s3Client, storageOptions, NullLogger<S3FileStorageService>.Instance);
+        _storageService = new S3FileStorageService(_s3Client, _s3Client, storageOptions, NullLogger<S3FileStorageService>.Instance);
 
         var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(PostgresConnectionString)

@@ -1,7 +1,7 @@
 # Arquitetura
 
-Documenta as decisões arquiteturais até a Etapa 8 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática, SignalR + notificação em tempo real de downloads, Blazor Web/Dashboard).
-Um Dashboard administrativo, upload pelo Web e novos mecanismos de autenticação pertencem a etapas futuras (ou estão deliberadamente fora de escopo).
+Documenta as decisões arquiteturais até a Etapa 14 (Domain/Database, Autenticação/JWT, Upload de arquivos, Link público de acesso, Download + histórico de downloads, Hangfire + expiração/limpeza automática, SignalR + notificação em tempo real de downloads, Blazor Web/Dashboard, Mobile Android, Docker + preparação para deploy em AWS).
+Um Dashboard administrativo, novos mecanismos de autenticação, CI/CD e o deploy real em AWS (execução do que está apenas documentado/preparado em `docs/infrastructure.md`) pertencem a etapas futuras (ou estão deliberadamente fora de escopo).
 
 ## Camadas (Clean Architecture)
 
@@ -326,6 +326,94 @@ Trocar LocalStack ↔ AWS real é só configuração (`AWS:ServiceURL` presente 
 > **Nota de compatibilidade (AWSSDK.S3 v4):** a partir da v4 do SDK, `AmazonS3Config.ServiceURL` sozinho não é mais suficiente para redirecionar as chamadas para um endpoint customizado — o SDK passou a exigir a variável de ambiente `AWS_ENDPOINT_URL_S3` (ou `AWS_ENDPOINT_URL`) para isso. `FileSharing.Api.Extensions.StorageExtensions` já define essa variável automaticamente quando `AWS:ServiceURL` está configurado; isso foi validado manualmente contra o LocalStack real durante o desenvolvimento desta etapa.
 
 Multipart upload não foi implementado nesta etapa (fora de escopo), mas a abstração (`IFileStorageService`) não impede adicioná-lo depois — seria um novo método (`CreateMultipartUploadAsync`/`CompletePartAsync`) na mesma interface, sem alterar Application ou Api.
+
+### Dois clientes `IAmazonS3` — chamadas reais vs. assinatura de presigned URL (Etapa 14)
+
+Rodar a Api e o LocalStack como containers Docker separados introduz um problema que não existia quando ambos rodavam diretamente no host: o endereço que a Api usa **internamente** para falar com o S3/LocalStack (nome de serviço Docker, ex. `http://localstack:4566`) nunca é alcançável de fora da rede Docker — mas uma presigned URL só é útil se o **navegador** (ou o app Mobile, ou um emulador Android) conseguir de fato abrir uma conexão TCP até o host embutido nela.
+
+Como a assinatura de uma presigned URL (`X-Amz-Signature`) cobre o `Host` usado no momento da assinatura, reescrever o host de uma URL já assinada invalida a assinatura — não é uma opção. A solução implementada é registrar **dois clientes `IAmazonS3` distintos** via DI com chave (.NET 8+ keyed services):
+
+```
+StorageExtensions.AddFileStorage
+  IAmazonS3 (singleton, sem chave)        → ServiceURL = AWS:ServiceURL (endpoint interno,
+                                              ex. "http://localstack:4566"). Usado para toda
+                                              chamada de rede real: HeadObject, DeleteObject.
+  IAmazonS3 (keyed: "s3-presign")          → ServiceURL = AWS:PublicServiceURL ?? AWS:ServiceURL
+                                              (endpoint alcançável de fora do container, ex.
+                                              "http://localhost:4566"). Usado apenas para
+                                              GetPreSignedURL — uma operação puramente local
+                                              (assinatura HMAC), que nunca faz uma chamada de
+                                              rede, então "apontar" para um host que o processo
+                                              da Api não alcança diretamente não é um problema.
+```
+
+`S3FileStorageService` recebe os dois via `[FromKeyedServices(S3FileStorageService.PresignClientKey)]`; `CreatePresignedUploadUrlAsync`/`CreatePresignedDownloadUrlAsync` usam exclusivamente o cliente de presign, todos os outros métodos (`GetObjectMetadataAsync`, `DeleteObjectAsync`, `ObjectExistsAsync`) usam exclusivamente o cliente interno.
+
+Duas armadilhas reais encontradas e evitadas durante a implementação:
+
+- A variável de ambiente `AWS_ENDPOINT_URL_S3` (necessária desde a v4 do SDK, ver nota acima) é **lida uma vez, por processo** — não por instância de `IAmazonS3`. Ela só pode ser definida com o endpoint **interno** (o cliente de presign nunca deve defini-la com o endpoint público, ou as chamadas de rede reais do outro cliente poderiam ser afetadas dependendo de quando o SDK resolve o endpoint). `AddFileStorage` define essa variável uma única vez, antes de construir qualquer um dos dois clientes.
+- Em desenvolvimento local sem Docker (a Api rodando via `dotnet run` direto no host, contra o LocalStack exposto em `localhost:4566`), `AWS:PublicServiceURL` simplesmente não é configurado — o cliente de presign cai de volta em `AWS:ServiceURL` (já `localhost:4566` nesse cenário), preservando o comportamento anterior a esta etapa sem nenhuma mudança de configuração.
+
+Em produção (S3 real, não LocalStack), `AWS:PublicServiceURL` não deve ser configurado — o S3 real já tem um único endpoint público (`s3.<region>.amazonaws.com` ou o endpoint regional equivalente), então o mesmo `ServiceURL`/comportamento padrão do SDK serve tanto para chamadas internas quanto para presigned URLs; a separação de dois endpoints é uma necessidade exclusiva do LocalStack containerizado.
+
+## Topologia de deployment (Etapa 14)
+
+### Desenvolvimento local (Docker Compose)
+
+```
+Navegador/App Mobile (host ou dispositivo)
+        │  HTTP (localhost:5105 / localhost:5287 / 10.0.2.2:5105 no emulador Android)
+        ▼
+┌─────────────────────────── docker network: filesharing-net ───────────────────────────┐
+│                                                                                          │
+│   ┌────────────┐        ┌────────────┐        ┌──────────────┐      ┌───────────────┐ │
+│   │  web:8080  │──────▶ │  api:8080  │──────▶ │ postgres:5432│      │ localstack:4566│ │
+│   │ (Blazor)   │  http  │ (ASP.NET)  │  Npgsql└──────────────┘      │      (S3)      │ │
+│   └────────────┘        └─────┬──────┘                              └────────┬───────┘ │
+│                                │  AWS SDK (HeadObject/DeleteObject,           │          │
+│                                │  endpoint interno "localstack:4566")─────────┘          │
+└──────────────────────────────┼──────────────────────────────────────────────────────────┘
+                                 │  presigned URL assinada para "localhost:4566"
+                                 ▼ (PUT/GET direto, nunca via api/web)
+                    Navegador/App Mobile → LocalStack (host-mapped, localhost:4566)
+```
+
+- **Mobile não é containerizado** (nem deveria) — roda no emulador Android ou dispositivo físico, e alcança a Api pelo endereço apropriado a cada ambiente (ver `docs/development.md`, tabela de endereços por contexto).
+- Migrações EF Core continuam rodando manualmente do host contra `localhost:5433` (porta mapeada do Postgres) — nenhuma migração automática no startup do container (decisão deliberada, ver `docs/development.md`).
+
+### Produção (AWS)
+
+```
+Internet
+   │  HTTPS (443, certificado ACM)
+   ▼
+┌─────────────────────┐
+│  Application Load    │  health checks: /health/live (Api e Web)
+│  Balancer (ALB)      │  WebSocket/SignalR: upgrade preservado no target group da Api
+└──────┬───────┬────────┘
+       │       │  HTTP (plano, ALB↔ECS é interno à VPC)
+       ▼       ▼
+┌────────────┐ ┌────────────┐
+│  ECS        │ │  ECS        │        Security Groups: só ALB pode falar com ECS;
+│  Fargate    │ │  Fargate    │        só ECS pode falar com RDS; RDS nunca exposto
+│  (Web)      │ │  (Api)      │        à Internet.
+└────────────┘ └─────┬───────┘
+                      │
+        ┌─────────────┼──────────────────┬────────────────────┐
+        ▼             ▼                  ▼                    ▼
+  ┌───────────┐ ┌──────────────┐  ┌──────────────┐   ┌─────────────────┐
+  │ RDS        │ │ S3 (privado,  │  │ Secrets       │   │ CloudWatch Logs │
+  │ PostgreSQL │ │ Block Public  │  │ Manager       │   │ (driver awslogs)│
+  │ (sem IP    │ │ Access,       │  │ (senha DB,    │   │                 │
+  │ público)   │ │ IAM Task Role)│  │ Jwt:SecretKey)│   │                 │
+  └───────────┘ └──────────────┘  └──────────────┘   └─────────────────┘
+```
+
+- Presigned URLs em produção apontam diretamente para o endpoint real do S3 (`AWS:PublicServiceURL` não configurado) — cliente (navegador/Mobile) faz PUT/GET direto ao S3, nunca via ALB/ECS.
+- Hangfire roda dentro de cada task da Api (nenhum worker separado), com storage no mesmo RDS; `DisableConcurrentExecution` garante execução única mesmo com múltiplas tasks.
+- SignalR sem backplane: uma conexão aberta com a task A não recebe eventos originados na task B — ver `docs/deployment.md`/`docs/security.md` para a limitação completa e por que não foi resolvida nesta etapa.
+
+Detalhes de cada recurso AWS (IAM, Security Groups, ECS Task Definition, ALB, ACM, Secrets Manager, CloudWatch, custo) estão em `docs/infrastructure.md`.
 
 ## Observability & Diagnostics (Etapa 12)
 

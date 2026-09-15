@@ -1,0 +1,173 @@
+name: Mobile CI
+
+# Escopo deste workflow: FileSharing.Mobile (.NET MAUI) e FileSharing.Mobile.Core. Objetivo desta
+# etapa (ver docs/ci-cd.md): garantir que o projeto continua compilável em Android e iOS — não
+# há deployment de Mobile nesta etapa (nenhuma loja de app, nenhum signing de produção).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  # FileSharing.Mobile.Core e FileSharing.Mobile.Tests são net10.0 puro (sem TargetFramework de
+  # plataforma) — rodam em qualquer runner, sem nenhum workload MAUI instalado. Roda primeiro e
+  # rápido: se a lógica compartilhada (ViewModels/Services) já está quebrada, nem vale a pena
+  # esperar os builds de Android/iOS abaixo.
+  test:
+    name: Mobile.Core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Format validation (Mobile.Core)
+        run: dotnet format src/FileSharing.Mobile.Core/FileSharing.Mobile.Core.csproj --verify-no-changes
+
+      - name: Test — FileSharing.Mobile.Tests
+        run: dotnet test tests/FileSharing.Mobile.Tests/FileSharing.Mobile.Tests.csproj -c Release
+
+      - name: Dependency / security audit (NuGet)
+        run: |
+          set -eo pipefail
+          OUTPUT=$(dotnet list src/FileSharing.Mobile.Core/FileSharing.Mobile.Core.csproj package --vulnerable --include-transitive 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "has the following vulnerable packages"; then
+            echo "::error::Pacotes NuGet vulneráveis encontrados — ver o output acima."
+            exit 1
+          fi
+
+  # Android compila em qualquer runner Linux — só precisa do workload MAUI Android (que já traz
+  # o Android SDK/build tools via pacotes NuGet, sem precisar do Android Studio) e de um JDK.
+  android-build:
+    name: Android build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: "17"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Cache do próprio workload (SDK packs de Android) — a instalação leva alguns minutos;
+      # sem esse cache, todo PR pagaria esse custo do zero.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.dotnet/sdk-manifests
+            ~/.dotnet/metadata/workloads
+            ~/.dotnet/packs
+          key: maui-android-workload-${{ runner.os }}-${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android --skip-manifest-update
+
+      - name: Format validation (Mobile — Android head project)
+        run: dotnet format src/FileSharing.Mobile/FileSharing.Mobile.csproj -f net10.0-android --verify-no-changes
+
+      - name: Build (net10.0-android, unsigned)
+        run: |
+          dotnet build src/FileSharing.Mobile/FileSharing.Mobile.csproj \
+            -f net10.0-android -c Release \
+            -p:AndroidPackageFormat=apk \
+            -p:AcceptAndroidSDKLicenses=true
+
+      # Só valida compilação nesta etapa — nenhum keystore de produção é usado ou referenciado;
+      # sem <AndroidSigningKeyStore>/afins configurado, o build gera um APK assinado com uma
+      # chave de debug gerada automaticamente pelo próprio SDK, nunca commitada, nunca reutilizável
+      # fora deste ambiente de CI. Ver docs/ci-cd.md, seção "Android — signing".
+      - name: Upload unsigned APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: filesharing-mobile-android-${{ github.sha }}
+          path: src/FileSharing.Mobile/bin/Release/net10.0-android/**/*.apk
+          retention-days: 14
+          if-no-files-found: warn
+
+  # net10.0-ios só entra em TargetFrameworks quando o SO não é Linux (ver
+  # FileSharing.Mobile.csproj) — exige um runner macOS com Xcode. Sem distribuição para a App
+  # Store nesta etapa: build simples, sem certificado de distribuição, só para provar que o
+  # código compartilhado (Domain/Application/Mobile.Core/Views/ViewModels comuns) compila para
+  # iOS. Ver docs/ci-cd.md, seção "iOS build".
+  ios-build:
+    name: iOS build
+    runs-on: macos-15
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.dotnet/sdk-manifests
+            ~/.dotnet/metadata/workloads
+            ~/.dotnet/packs
+          key: maui-ios-workload-${{ runner.os }}-${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI iOS workload
+        run: dotnet workload install maui-ios --skip-manifest-update
+
+      - name: Format validation (Mobile — iOS head project)
+        run: dotnet format src/FileSharing.Mobile/FileSharing.Mobile.csproj -f net10.0-ios --verify-no-changes
+
+      # Build simples (sem -p:BuildIpa, sem assinatura/provisioning profile) — só compila.
+      # A versão exata de Xcode necessária para este TargetFramework pode precisar ser fixada
+      # (em vez de "latest-stable") assim que a combinação .NET 10 SDK ↔ Xcode for validada
+      # neste runner pela primeira vez — ver docs/ci-cd.md.
+      - name: Build (net10.0-ios, unsigned, no IPA)
+        run: |
+          dotnet build src/FileSharing.Mobile/FileSharing.Mobile.csproj \
+            -f net10.0-ios -c Release \
+            -p:BuildIpa=false \
+            -p:CodesignKey= \
+            -p:CodesignProvision=
