@@ -1,8 +1,10 @@
 using System.Text;
 using FileSharing.Api.Hubs;
+using FileSharing.Application.Abstractions.Email;
 using FileSharing.Application.Abstractions.Security;
 using FileSharing.Application.Services.Auth;
 using FileSharing.Application.Validators.Auth;
+using FileSharing.Infrastructure.Email;
 using FileSharing.Infrastructure.Identity;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -16,10 +18,16 @@ public static class AuthExtensions
     public static IServiceCollection AddAuthServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.Configure<PasswordResetOptions>(configuration.GetSection(PasswordResetOptions.SectionName));
 
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
+
+        // The only IEmailService registration in this phase — see DevelopmentEmailService's own
+        // remarks for why a real provider (AWS SES etc.) is deliberately not wired up yet.
+        services.AddScoped<IEmailService, DevelopmentEmailService>();
 
         services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 

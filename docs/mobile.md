@@ -81,6 +81,21 @@ SignalR: FileDownloaded  →  Home atualiza contagem + mostra banner
 
 ---
 
+## Recuperação de senha
+
+`LoginPage` tem um botão "Esqueci minha senha" → `ForgotPasswordPage` (`ForgotPasswordViewModel`): pede o email, chama `POST /api/auth/forgot-password` e mostra sempre a mesma mensagem de sucesso, exista ou não a conta (o app nunca tem como saber a diferença — a Api responde igual nos dois casos, ver `docs/security.md`).
+
+**Como o token chega ao app:** o link do email aponta para a página **Web** (`{PasswordReset:WebResetUrlBase}?token=...`, configurado no lado da Api) — este app não tem um deep link/App Link registrado para abrir automaticamente a partir desse link (fora do escopo desta fase: exigiria configuração de Android App Links/`assetlinks.json`, verificação de domínio, etc.). Por isso `ResetPasswordPage`/`ResetPasswordViewModel` aceita o token de **duas formas**:
+
+1. Automaticamente, via parâmetro de rota (`resetpassword?token=...`, usando o mesmo mecanismo `IQueryAttributable` que `HistoryPage` já usa para `fileId`) — pronto para quando/se um deep link for adicionado no futuro.
+2. Colado manualmente: `ForgotPasswordPage` tem um botão "Já tenho um token" → `ResetPasswordPage` sem token na rota → `ResetPasswordViewModel.NeedsManualToken = true` → um campo de texto + botão "Validar" chama `ValidateResetTokenAsync` com o valor colado.
+
+Em ambos os casos, o token só é aceito depois de validado (`GET /api/auth/reset-password/{token}`) — o formulário de "Nova senha"/"Confirmar nova senha" só aparece após essa validação ter sucesso. Erros são mostrados por `code` (`AUTH_PASSWORD_RESET_EXPIRED`/`_USED`/`_INVALID`), nunca pela mensagem crua da Api — ver `docs/api-errors.md`.
+
+Validado manualmente num Samsung Galaxy Note 20 físico (Android 13), ponta a ponta contra a Api real na mesma rede local: solicitação → token capturado do log do `DevelopmentEmailService` → colado na tela → validado → senha redefinida → confirmado por `POST /api/auth/login` que a senha antiga passou a falhar e a nova funciona.
+
+---
+
 ## SecureStorage — o que entra e o que nunca entra
 
 Só três valores, todos via `ISecureStorageService`: o JWT (`auth.access_token`), seu `ExpiresAt` (`auth.expires_at`) e o `Id`/`Email` do usuário (`auth.user_id`/`auth.email`, conveniência de exibição, não uma credencial). **Nunca**: AWS Access Key/Secret/Session Token, a chave de assinatura do JWT, credenciais do PostgreSQL, senha em texto puro — nenhum desses é sequer recebido pelo Mobile em algum momento (ver seção de Segurança abaixo).
@@ -170,6 +185,7 @@ Nenhuma biblioteca de UI nova foi adicionada (nem `CommunityToolkit.Maui`, nem `
 - **Bottom sheet é uma página modal estilizada, não um componente de bottom sheet nativo** (sem gesto de arrastar para fechar — só toque no scrim). Ver a seção de UI acima para o porquê dessa escolha.
 - **iOS/macOS/Windows não foram exercitados nesta fase** — o projeto multi-targeta esses TFMs fora do Linux, mas todo o trabalho e validação desta fase foi feito exclusivamente para Android, que é o único alvo que compila neste ambiente de desenvolvimento.
 - **Sem push notification do Android** — a notificação de download é inteiramente in-app via SignalR (banner + atualização do card), como pedido explicitamente pela Fase 13; uma notificação real do sistema operacional (fora do app aberto) fica para uma fase futura.
+- **Sem deep link/App Link para o link de recuperação de senha** — o email aponta para a página Web; abrir esse link no navegador do celular não abre este app automaticamente. O usuário cola o token manualmente (ver "Recuperação de senha" acima). Configurar Android App Links (verificação de domínio via `assetlinks.json`) é uma melhoria possível para uma fase futura, fora do escopo desta.
 
 ## Como executar no Android
 

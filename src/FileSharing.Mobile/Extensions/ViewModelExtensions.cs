@@ -11,6 +11,8 @@ public static class ViewModelExtensions
         // navigates to Login/Register/Upload/FileDetails/History).
         services.AddTransient<LoginViewModel>();
         services.AddTransient<RegisterViewModel>();
+        services.AddTransient<ForgotPasswordViewModel>();
+        services.AddTransient<ResetPasswordViewModel>();
         services.AddSingleton<HomeViewModel>();
         services.AddTransient<UploadViewModel>();
         services.AddTransient<FileDetailsViewModel>();

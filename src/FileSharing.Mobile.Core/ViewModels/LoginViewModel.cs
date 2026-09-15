@@ -90,4 +90,7 @@ public partial class LoginViewModel : ObservableObject
 
     [RelayCommand]
     private Task GoToRegisterAsync() => _navigation.GoToAsync("register");
+
+    [RelayCommand]
+    private Task GoToForgotPasswordAsync() => _navigation.GoToAsync("forgotpassword");
 }

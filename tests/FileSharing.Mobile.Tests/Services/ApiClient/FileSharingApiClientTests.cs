@@ -147,4 +147,57 @@ public class FileSharingApiClientTests
 
         Assert.DoesNotContain(internalDetail, result.Message);
     }
+
+    [Fact]
+    public async Task ErrorResponse_WithACodeAndTitleInTheBody_SurfacesBothOnApiResult()
+    {
+        var (sut, _, _) = CreateSut(_ => new HttpResponseMessage(HttpStatusCode.Gone)
+        {
+            Content = JsonContent.Create(new { title = "Este link de recuperação expirou.", status = 410, code = "AUTH_PASSWORD_RESET_EXPIRED" })
+        });
+
+        var result = await sut.ValidateResetTokenAsync("some-token");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(ApiErrorType.Gone, result.ErrorType);
+        Assert.Equal("AUTH_PASSWORD_RESET_EXPIRED", result.Code);
+        Assert.Equal("Este link de recuperação expirou.", result.Message);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_OnSuccess_ReturnsSuccessRegardlessOfBody()
+    {
+        var (sut, _, _) = CreateSut(_ => new HttpResponseMessage(HttpStatusCode.Accepted)
+        {
+            Content = JsonContent.Create(new { message = "Se a conta existir, enviaremos instruções para redefinir sua senha." })
+        });
+
+        var result = await sut.ForgotPasswordAsync("user@example.com");
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_NeverAttachesAnAuthorizationHeader()
+    {
+        var (sut, handler, _) = CreateSut(_ => new HttpResponseMessage(HttpStatusCode.Accepted));
+
+        await sut.ForgotPasswordAsync("user@example.com");
+
+        Assert.All(handler.Requests, r => Assert.Null(r.Headers.Authorization));
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_WithUsedTokenCode_SurfacesTheCode()
+    {
+        var (sut, _, _) = CreateSut(_ => new HttpResponseMessage(HttpStatusCode.Gone)
+        {
+            Content = JsonContent.Create(new { title = "Este link de recuperação já foi utilizado.", status = 410, code = "AUTH_PASSWORD_RESET_USED" })
+        });
+
+        var result = await sut.ResetPasswordAsync("some-token", "NewPassword123");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AUTH_PASSWORD_RESET_USED", result.Code);
+    }
 }

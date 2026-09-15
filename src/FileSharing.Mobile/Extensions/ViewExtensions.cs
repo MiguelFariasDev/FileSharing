@@ -8,6 +8,8 @@ public static class ViewExtensions
     {
         services.AddTransient<LoginPage>();
         services.AddTransient<RegisterPage>();
+        services.AddTransient<ForgotPasswordPage>();
+        services.AddTransient<ResetPasswordPage>();
         services.AddSingleton<HomePage>();
         services.AddTransient<UploadPage>();
         services.AddTransient<FileDetailsPage>();

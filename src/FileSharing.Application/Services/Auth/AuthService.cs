@@ -1,6 +1,7 @@
 using FileSharing.Application.Abstractions.Persistence;
 using FileSharing.Application.Abstractions.Security;
-using FileSharing.Application.Common;
+using FileSharing.Application.Common.Errors;
+using FileSharing.Application.Common.Exceptions;
 using FileSharing.Application.DTOs.Auth;
 using FileSharing.Application.Observability;
 using FileSharing.Domain.Entities;
@@ -11,8 +12,8 @@ namespace FileSharing.Application.Services.Auth;
 
 public class AuthService : IAuthService
 {
-    private const string InvalidCredentialsError = "Credenciais inválidas.";
-    private const string EmailAlreadyRegisteredError = "Não foi possível concluir o cadastro.";
+    private const string InvalidCredentialsMessage = "Credenciais inválidas.";
+    private const string EmailAlreadyRegisteredMessage = "Não foi possível concluir o cadastro.";
 
     private readonly IApplicationDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
@@ -34,7 +35,7 @@ public class AuthService : IAuthService
         _logger = logger;
     }
 
-    public async Task<Result<UserResponse>> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
+    public async Task<UserResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
 
@@ -48,7 +49,7 @@ public class AuthService : IAuthService
             // the API response already collapsing this into a single generic error.
             _logger.LogWarning("Registration rejected: email already registered.");
             _metrics.AuthAttempt("register", success: false);
-            return Result<UserResponse>.Failure(EmailAlreadyRegisteredError);
+            throw new ConflictException(AuthErrorCode.EmailAlreadyExists, EmailAlreadyRegisteredMessage);
         }
 
         var passwordHash = _passwordHasher.HashPassword(request.Password);
@@ -64,15 +65,15 @@ public class AuthService : IAuthService
         {
             _logger.LogWarning("Registration rejected: email already registered (race with a concurrent request).");
             _metrics.AuthAttempt("register", success: false);
-            return Result<UserResponse>.Failure(EmailAlreadyRegisteredError);
+            throw new ConflictException(AuthErrorCode.EmailAlreadyExists, EmailAlreadyRegisteredMessage);
         }
 
         _logger.LogInformation("User registered. UserId={UserId}", user.Id);
         _metrics.AuthAttempt("register", success: true);
-        return Result<UserResponse>.Success(new UserResponse(user.Id, user.Email));
+        return new UserResponse(user.Id, user.Email);
     }
 
-    public async Task<Result<AuthResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
 
@@ -85,24 +86,24 @@ public class AuthService : IAuthService
             // discipline as the generic "Credenciais inválidas." response this backs.
             _logger.LogWarning("Login rejected: invalid credentials.");
             _metrics.AuthAttempt("login", success: false);
-            return Result<AuthResponse>.Failure(InvalidCredentialsError);
+            throw new AuthenticationException(AuthErrorCode.InvalidCredentials, InvalidCredentialsMessage);
         }
 
         var (accessToken, expiresAt) = _jwtTokenGenerator.GenerateToken(user);
         _logger.LogInformation("Login succeeded. UserId={UserId}", user.Id);
         _metrics.AuthAttempt("login", success: true);
-        return Result<AuthResponse>.Success(new AuthResponse(accessToken, expiresAt));
+        return new AuthResponse(accessToken, expiresAt);
     }
 
-    public async Task<Result<UserResponse>> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    public async Task<UserResponse> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var user = await _dbContext.Users
             .SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
         if (user is null)
-            return Result<UserResponse>.Failure(InvalidCredentialsError);
+            throw new AuthenticationException(AuthErrorCode.InvalidCredentials, InvalidCredentialsMessage);
 
-        return Result<UserResponse>.Success(new UserResponse(user.Id, user.Email));
+        return new UserResponse(user.Id, user.Email);
     }
 
     private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();

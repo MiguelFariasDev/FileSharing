@@ -11,6 +11,8 @@ public enum ApiErrorType
     Forbidden,
     NotFound,
     Conflict,
+    /// <summary>410 — a resource that existed but is no longer usable (an expired/already-used password-reset token). Distinguish which one via ApiResult.Code, not this enum.</summary>
+    Gone,
     TooManyRequests,
     ValidationFailed,
     ServerError,

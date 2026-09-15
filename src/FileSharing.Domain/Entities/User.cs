@@ -25,4 +25,17 @@ public class User
         PasswordHash = passwordHash;
         CreatedAt = DateTimeOffset.UtcNow;
     }
+
+    /// <summary>
+    /// Replaces the password hash — the only way a password ever changes (password-reset flow).
+    /// Takes an already-hashed value, same as the constructor: this entity never sees a
+    /// plaintext password itself.
+    /// </summary>
+    public void ChangePasswordHash(string newPasswordHash)
+    {
+        if (string.IsNullOrWhiteSpace(newPasswordHash))
+            throw new ArgumentException("PasswordHash is required.", nameof(newPasswordHash));
+
+        PasswordHash = newPasswordHash;
+    }
 }

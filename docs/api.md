@@ -1,6 +1,29 @@
 # API
 
-Esta seção documenta os endpoints implementados até a Etapa 8 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard).
+Esta seção documenta os endpoints implementados até a Etapa 8 (Autenticação/JWT + Upload de arquivos + Link público de acesso + Download + histórico de downloads + Hangfire/expiração automática + SignalR/notificação em tempo real + Blazor Web/Dashboard), além da fase de recuperação de senha e padronização de erros descrita abaixo.
+
+## Formato padronizado de erro
+
+Toda resposta de erro desta API (validação, autenticação, autorização, conflito, recurso não encontrado, rate limit, ou erro interno) segue o mesmo formato, um `ProblemDetails` (RFC 9110) com duas extensões próprias:
+
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.2",
+  "title": "E-mail ou senha inválidos.",
+  "status": 401,
+  "traceId": "00-6334ae22bf58b33595fd6285d334a56b-24f3b0cdc9743f36-00",
+  "correlationId": "708dd15a9fb547399947bca554eac0d2",
+  "code": "AUTH_INVALID_CREDENTIALS"
+}
+```
+
+- **`code`**: string estável e pública — o único campo que Mobile/Web devem usar para tomar decisões de fluxo (ex.: distinguir um token de recuperação expirado de um já utilizado, que retornam o mesmo `status` 410). Ver o catálogo completo em `docs/api-errors.md`. Nunca é o nome do enum interno (`AuthErrorCode.InvalidCredentials` etc.) — é sempre derivado por um mapeamento explícito (`ErrorCodeCatalog`), o que permite renomear o enum no futuro sem quebrar clientes.
+- **`title`**: mensagem em português, segura para exibir ao usuário — nunca uma mensagem de exceção, stack trace, ou detalhe de infraestrutura (SQL, AWS, etc.).
+- **`correlationId`**: id desta requisição, o mesmo já usado desde a Etapa 12 (`X-Correlation-ID` no header de resposta e em todas as linhas de log desta requisição).
+- **`traceId`**: id de distributed tracing padrão do ASP.NET Core (formato W3C), gerado automaticamente pelo framework — coexiste com `correlationId` (que é o identificador que este projeto usa em seus próprios logs/documentação) sem ser a mesma string.
+- **`errors`**: presente **somente** em erros de validação (`code: "VALIDATION_ERROR"`) — dicionário campo → lista de mensagens, no formato padrão do `ValidationProblemDetails` do ASP.NET Core.
+
+Erros inesperados (uma exceção não tratada — EF Core, AWS SDK, um bug) nunca vazam o tipo/mensagem/stack trace real: são sempre convertidos para `code: "INTERNAL_ERROR"` com uma mensagem genérica, em qualquer ambiente. Ver `docs/security.md`.
 
 A Etapa 6 (Hangfire + limpeza automática de arquivos expirados) **não adiciona nenhum endpoint HTTP novo** — é um job recorrente em segundo plano, sem superfície de API própria, e deliberadamente sem Dashboard exposto (`/hangfire` não existe como rota nesta etapa; ver `docs/security.md`). Ver `docs/architecture.md` para o funcionamento do job e a relação entre `ExpiresAt` e a limpeza.
 
@@ -60,10 +83,10 @@ Autenticação: não requerida.
     "email": "user@example.com"
   }
   ```
-- `400 Bad Request`: request inválido (`ValidationProblemDetails`).
+- `400 Bad Request`: request inválido (`ValidationProblemDetails`, `code: "VALIDATION_ERROR"`).
 - `409 Conflict`: e-mail já cadastrado.
   ```json
-  { "message": "Não foi possível concluir o cadastro." }
+  { "title": "Não foi possível concluir o cadastro.", "status": 409, "code": "AUTH_EMAIL_ALREADY_EXISTS", "correlationId": "...", "traceId": "..." }
   ```
 
 ---
@@ -95,7 +118,7 @@ Autenticação: não requerida.
 - `400 Bad Request`: request inválido.
 - `401 Unauthorized`: credenciais inválidas (e-mail inexistente ou senha incorreta — a mensagem é sempre a mesma, para não revelar qual delas falhou).
   ```json
-  { "message": "Credenciais inválidas." }
+  { "title": "Credenciais inválidas.", "status": 401, "code": "AUTH_INVALID_CREDENTIALS", "correlationId": "...", "traceId": "..." }
   ```
 
 ---

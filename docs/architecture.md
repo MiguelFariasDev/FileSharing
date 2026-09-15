@@ -383,60 +383,132 @@ GET /health/ready   tag "ready"  — PostgresHealthCheck + S3HealthCheck
 
 `Microsoft.AspNetCore.HttpLogging` (built-in do framework) — método, path, protocolo, status, duração. Nunca headers (`Authorization`/`Cookie` inclusos) nem corpo de request/response. `PublicFilesController` está inteiramente fora dele (`[HttpLogging(HttpLoggingFields.None)]`) porque sua própria rota contém o token público — ver `docs/security.md`. Liga/desliga via `Observability:EnableRequestLogging` (padrão `true`).
 
+## Recuperação de senha e tratamento de erros
+
+### Pipeline de erro
+
+```text
+Serviço (AuthService/PasswordResetService)
+      │  throw new AuthenticationException(AuthErrorCode.InvalidCredentials, "...")
+      ▼
+GlobalExceptionHandler.TryHandleAsync
+      │  exception is AppException appException?
+      │    sim → status/título vêm da própria exceção, log em nível Information
+      │    não → status 500 fixo, título genérico, log em nível Error (exceção completa)
+      ▼
+IProblemDetailsService.TryWriteAsync
+      │  CustomizeProblemDetails (ErrorHandlingExtensions) estampa:
+      │    - correlationId (sempre)
+      │    - code: AppException.PublicCode, ou "VALIDATION_ERROR" (ValidationProblemDetails),
+      │      ou "INTERNAL_ERROR" (qualquer outro caso)
+      ▼
+Resposta HTTP { type, title, status, correlationId, traceId, code, errors? }
+```
+
+`RateLimiterPolicyNames.*` (rate limiting) é a única exceção a este fluxo — a rejeição acontece na pipeline de middleware antes do `GlobalExceptionHandler`, então `RateLimitingExtensions.AddApiRateLimiting`'s `OnRejected` escreve o mesmo formato de resposta diretamente, sem passar por `IExceptionHandler`.
+
+Ver `docs/api-errors.md` para o catálogo completo de `code`s e `docs/security.md` para a política de logging (uma `AppException` nunca é `LogError`).
+
+### Fluxo de recuperação de senha
+
+```text
+POST /api/auth/forgot-password { email }
+      │
+      ▼
+PasswordResetService.ForgotPasswordAsync
+      │  usuário existe? ──não──► retorna normalmente (nenhum token, nenhum e-mail)
+      │  sim
+      ▼
+Invalida tokens ainda válidos do usuário (PasswordResetToken.Invalidate)
+      │
+      ▼
+Gera token (RandomTokenGenerator) → hash (AccessTokenHasher) → persiste PasswordResetToken
+      │
+      ▼
+IEmailService.SendPasswordResetEmailAsync(email, resetLink)   ← link para o Web (PasswordReset:WebResetUrlBase)
+      │
+      ▼
+Controller sempre responde 202 com a mesma mensagem (exista ou não a conta)
+
+
+GET /api/auth/reset-password/{token}          POST /api/auth/reset-password { token, newPassword }
+      │                                              │
+      ▼                                              ▼
+PasswordResetService.ValidateResetTokenAsync   PasswordResetService.ResetPasswordAsync
+      │                                              │
+      └──────────────┬───────────────────────────────┘
+                      ▼
+      FindValidTokenOrThrowAsync (hash do token → busca por igualdade)
+         não encontrado → DomainException(PasswordResetInvalid, 404)
+         já usado        → DomainException(PasswordResetUsed, 410)
+         expirado         → DomainException(PasswordResetExpired, 410)
+         válido            → segue (200 na validação; troca a senha + marca usado no reset)
+```
+
+- **Por que uma entidade própria, e não reaproveitar `File.AccessTokenHash`:** são conceitos diferentes (sessão de reset de um `User` vs. link público de um `File`), com ciclos de vida e regras de expiração/uso próprios — misturar os dois acoplaria duas features sem relação, só por semelhança superficial do mecanismo de hash.
+- **Por que `AccessTokenHasher` é reaproveitado mesmo assim:** o *algoritmo* (SHA-256 determinístico para permitir busca por igualdade) é genuinamente o mesmo problema técnico já resolvido — reaproveitar a função evita uma segunda implementação redundante do mesmo hash, sem acoplar as duas entidades entre si (cada uma tem sua própria coluna/tabela).
+- **Por que `AuthService`/`PasswordResetService` são serviços separados:** mesmo padrão já usado em `FileSharing.Application.Services.Files` (um serviço por caso de uso coeso: upload, link público, download, query) — `AuthService` continua só com registro/login/usuário atual; a lógica de recuperação de senha (token, e-mail, invalidação) fica isolada em `PasswordResetService`, injetado separadamente em `AuthController`.
+
 ## Diagrama de pastas do backend
 
 ```
 src/
   FileSharing.Domain/
-    Entities/{User,File,Download}.cs
+    Entities/{User,File,Download,PasswordResetToken}.cs
     Enums/{FileStatus,CompressionType}.cs
   FileSharing.Application/
-    Abstractions/{Persistence,Security,Storage,Notifications}/
+    Abstractions/{Persistence,Security,Storage,Notifications,Email}/
     Common/{Result,FileTypePolicy,RandomTokenGenerator,AccessTokenHasher}.cs
+    Common/Errors/{AuthErrorCode,FileErrorCode,AuthorizationErrorCode,ValidationErrorCode,ResourceErrorCode,SystemErrorCode,RateLimitErrorCode,ErrorCodeCatalog}.cs   # error-code padronização
+    Common/Exceptions/{AppException,AuthenticationException,ForbiddenException,ResourceNotFoundException,ConflictException,DomainException}.cs                      # error-code padronização
     Observability/AppMetrics.cs                                      # Etapa 12
     DTOs/{Auth,Files,Notifications}/
     Validators/{Auth,Files}/
-    Services/Auth/AuthService.cs
+    Services/Auth/{AuthService,PasswordResetService}.cs
     Services/Files/{FileUploadService,FilePublicLinkService,FileDownloadService,FileQueryService}.cs
   FileSharing.Infrastructure/
-    Persistence/{ApplicationDbContext,Configurations,Migrations}/
+    Persistence/{ApplicationDbContext,Configurations,Migrations}/     # inclui PasswordResetTokenConfiguration
     Identity/{PasswordHasher,JwtTokenGenerator}.cs
     Storage/S3FileStorageService.cs
+    Email/DevelopmentEmailService.cs                                  # error-code padronização — única implementação de IEmailService desta fase
     BackgroundJobs/{ExpiredFileCleanupJob,ExpirationCleanupOptions}.cs
   FileSharing.Api/
-    Controllers/{AuthController,FilesController,PublicFilesController}.cs
+    Controllers/{AuthController,FilesController,PublicFilesController}.cs   # AuthController ganhou forgot-password/reset-password
     Hubs/{NotificationHub,SubClaimUserIdProvider,SignalRFileDownloadNotifier,HubEndpoints}.cs
-    Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal,Observability}Extensions.cs
-    Middleware/{GlobalExceptionHandler,CorrelationIdMiddleware}.cs   # Etapa 10/12
+    Extensions/{Persistence,Auth,Storage,BackgroundJobs,Notifications,Swagger,ValidationResult,ClaimsPrincipal,Observability,ErrorHandling,RequestLogging,RateLimiting,ServiceRegistration}Extensions.cs
+                                                                       # ServiceRegistrationExtensions agrega os demais em 3 chamadas (AddAuthenticationServices/AddApplicationServices/AddCrossCuttingServices) — Program.cs fica só com essas 3 linhas, sem comentários de agrupamento
+    Middleware/{GlobalExceptionHandler,CorrelationIdMiddleware}.cs   # GlobalExceptionHandler agora também trata AppException, não só o caminho 500
     HealthChecks/{PostgresHealthCheck,S3HealthCheck}.cs              # Etapa 12
     Options/ObservabilityOptions.cs                                  # Etapa 12
-    RateLimiterPolicyNames.cs
+    RateLimiterPolicyNames.cs                                        # + PasswordReset
   FileSharing.Web/                      # Blazor Server (Etapa 8)
-    Models/{ApiSettings,ApiResult,ApiErrorType,PublicLinkResponse,ToastMessage}.cs
-    Services/{AuthTokenProvider,ApiAuthenticationStateProvider,FileSharingApiClient,ToastService}.cs
+    Extensions/{Authentication,ApiClient,AppServices,ServiceRegistration}Extensions.cs   # Program.cs fica só com AddApplicationServices(configuration)
+    Models/{ApiSettings,ApiResult,ApiErrorType,PublicLinkResponse,ToastMessage}.cs        # ApiResult ganhou Code; ApiErrorType ganhou Gone
+    Services/{AuthTokenProvider,ApiAuthenticationStateProvider,FileSharingApiClient,ToastService}.cs   # + ForgotPasswordAsync/ValidateResetTokenAsync/ResetPasswordAsync
     Services/Notifications/{SignalRNotificationService,NotificationConnectionState}.cs
-    Components/Pages/{Login,Register,Home,Dashboard}.razor
+    Components/Pages/{Login,Register,ForgotPassword,ResetPassword,Home,Dashboard}.razor
     Components/Layout/{MainLayout,AuthLayout}.razor
     Components/Shared/{FileLinkCell,ToastContainer,ConnectionStatus,SessionGuard,RedirectToLogin}.razor
     wwwroot/js/interop.js               # clipboard only — o JWT nunca chega ao JS
   FileSharing.Mobile.Core/               # .NET MAUI Android (Etapa 13) — ver docs/mobile.md
-    Models/{UploadableItem,ApiResult,PublicLinkResponse,UploadStage}.cs
-    Services/ApiClient/{FileSharingApiClient,ApiClientOptions}.cs
+    Models/{UploadableItem,ApiResult,PublicLinkResponse,UploadStage}.cs   # ApiResult ganhou Code; ApiErrorType ganhou Gone
+    Services/ApiClient/{FileSharingApiClient,ApiClientOptions}.cs        # + ForgotPasswordAsync/ValidateResetTokenAsync/ResetPasswordAsync
     Services/Authentication/AuthSession.cs
     Services/Upload/{FileUploadService,S3UploadHttpClient,ProgressReportingStream,interfaces}.cs
     Services/SignalR/{SignalRNotificationService,NotificationConnectionState,interfaces}.cs
     Services/Platform/{INavigationService,IClipboardService,IShareService,IMainThreadDispatcher}.cs
     Services/Storage/ISecureStorageService.cs
-    ViewModels/{Login,Register,Home,Upload,FileDetails,History,FileItem}ViewModel.cs
+    ViewModels/{Login,Register,ForgotPassword,ResetPassword,Home,Upload,FileDetails,History,FileItem}ViewModel.cs
   FileSharing.Mobile/                    # net10.0-android head project — MAUI/Android-specific only
+    Extensions/{Authentication,ApiClient,Upload,Notification,Platform,ViewModel,View,ServiceRegistration}Extensions.cs   # MauiProgram.cs fica só com 3 chamadas
     Services/Storage/SecureStorageService.cs        # only place touching Microsoft.Maui.Storage.SecureStorage
     Services/Upload/FilePickerService.cs            # only place touching Microsoft.Maui.Storage.FilePicker
     Services/Platform/{Navigation,Clipboard,Share,MainThreadDispatcher}Service.cs
     Platforms/Android/{FolderPickerService,ActivityResultBridge}.cs
-    Views/{Login,Register,Home,Upload,FileDetails,History}Page.xaml
+    Views/{Login,Register,ForgotPassword,ResetPassword,Home,Upload,FileDetails,History}Page.xaml
     Components/{FileCard,StatusBadge}.xaml
     Converters/{IconKeyToEmojiConverter,StatusLabelToKindConverter,StringToBoolConverter,InvertedBoolConverter}.cs
     Resources/Raw/appsettings.json                  # Api:BaseUrl / Api:HubUrl — never a secret
-    Resources/Styles/{Colors,Styles}.xaml            # blue/glass theme
+    Resources/Styles/{Colors,Styles}.xaml            # blue/glass theme; GlassCardBorder substitui o antigo componente GlassCard (ver histórico do projeto)
     MauiProgram.cs, App.xaml.cs, AppShell.xaml.cs
 ```

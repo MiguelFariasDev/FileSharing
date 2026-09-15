@@ -43,6 +43,8 @@
 
                         <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="{StaticResource Primary}" />
 
+                        <Button Text="Esqueci minha senha" Style="{StaticResource TextButton}" HorizontalOptions="Center" Command="{Binding GoToForgotPasswordCommand}" />
+
                     </VerticalStackLayout>
                 </Border>
 

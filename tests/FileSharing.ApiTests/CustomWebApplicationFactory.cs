@@ -1,3 +1,4 @@
+using FileSharing.Application.Abstractions.Email;
 using FileSharing.Application.Abstractions.Notifications;
 using FileSharing.Application.Abstractions.Storage;
 using FileSharing.Infrastructure.Persistence;
@@ -34,8 +35,20 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public Mock<IFileDownloadNotifier> FileDownloadNotifierMock { get; } = new();
 
+    /// <summary>
+    /// Password reset (Fase — recuperação de senha) never sends a real email — this replaces
+    /// DevelopmentEmailService so tests can assert "was an email attempted, to whom, with what
+    /// link" without parsing console output. A default no-op Setup means most tests never need
+    /// to touch this at all.
+    /// </summary>
+    public Mock<IEmailService> EmailServiceMock { get; } = new();
+
     public CustomWebApplicationFactory()
     {
+        EmailServiceMock
+            .Setup(s => s.SendPasswordResetEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
         FileStorageServiceMock
             .Setup(s => s.CreatePresignedUploadUrlAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PresignedUploadUrl("https://mock-s3.test/upload", DateTimeOffset.UtcNow.AddMinutes(15)));
@@ -62,7 +75,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 // real per-IP limit (Program.cs, RateLimiterPolicyNames.Auth) would make most of
                 // this project flaky. AuthRateLimitingTests overrides this back down on its own
                 // isolated host (via WithWebHostBuilder) to actually exercise the policy.
-                ["RateLimiting:Auth:PermitLimit"] = "100000"
+                ["RateLimiting:Auth:PermitLimit"] = "100000",
+                // Same reasoning as the Auth override above, for the forgot-password endpoint's
+                // own tighter policy — PasswordResetRateLimitingTests overrides it back down on
+                // its own isolated host to actually exercise it.
+                ["RateLimiting:PasswordReset:PermitLimit"] = "100000",
+                ["PasswordReset:TokenExpirationMinutes"] = "30",
+                ["PasswordReset:WebResetUrlBase"] = "https://app.test/reset-password"
             });
         });
 
@@ -87,6 +106,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IFileDownloadNotifier>();
             services.AddSingleton(FileDownloadNotifierMock.Object);
+
+            services.RemoveAll<IEmailService>();
+            services.AddSingleton(EmailServiceMock.Object);
         });
     }
 }
