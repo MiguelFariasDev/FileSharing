@@ -70,6 +70,19 @@ services:
       FileStorage__BucketName: filesharing-dev
       FileStorage__Region: us-east-1
       PasswordReset__WebResetUrlBase: "http://localhost:5287/reset-password"
+      # O código já lia estes dois valores de IConfiguration (RateLimitingExtensions.cs) — só não
+      # estavam conectados ao Compose. Os defaults abaixo (20/5) são exatamente os mesmos
+      # hardcoded no código quando a chave está ausente, então nada muda por padrão; só passam a
+      # ser ajustáveis (ex. para os benchmarks de capacidade da Etapa 16 — ver load-tests/README.md
+      # — que precisam medir o backend sem o limitador de 20 req/min/IP interferindo).
+      RateLimiting__Auth__PermitLimit: ${RATE_LIMITING_AUTH_PERMIT_LIMIT:-20}
+      RateLimiting__PasswordReset__PermitLimit: ${RATE_LIMITING_PASSWORD_RESET_PERMIT_LIMIT:-5}
+      # Mesmo raciocínio acima — já eram configuráveis via IConfiguration (ExpirationCleanupOptions),
+      # só não conectados ao Compose. Defaults idênticos a appsettings.json (15min/100), usados
+      # pela Etapa 16 para acelerar/ampliar o job de limpeza durante os benchmarks de volume (ver
+      # docs/performance.md, seção Hangfire) sem esperar o intervalo real de produção.
+      ExpirationCleanup__IntervalMinutes: ${EXPIRATION_CLEANUP_INTERVAL_MINUTES:-15}
+      ExpirationCleanup__BatchSize: ${EXPIRATION_CLEANUP_BATCH_SIZE:-100}
     ports:
       - "5105:8080"
     depends_on:

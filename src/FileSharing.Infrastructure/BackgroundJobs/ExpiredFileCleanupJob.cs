@@ -80,6 +80,23 @@ public class ExpiredFileCleanupJob : IExpiredFileCleanupJob
                 // permanent one.
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
+                // Etapa 16 (medido, não especulativo — ver docs/performance.md, seção Hangfire):
+                // sem desanexar, o change tracker do EF Core acumula uma entidade rastreada por
+                // arquivo já processado neste laço, e SaveChangesAsync roda DetectChanges() sobre
+                // TODAS elas a cada chamada — custo por item crescendo com o tamanho do lote
+                // (quadrático no total). Medido: ~4-5ms/arquivo em lotes de 100 rodados em
+                // sequência, contra ~18ms/arquivo processando 600 de uma vez sem isto.
+                //
+                // Importante: só o `file` já salvo é desanexado — nunca ChangeTracker.Clear(),
+                // que desanexaria TODOS os candidatos ainda tracked, inclusive os que este mesmo
+                // laço ainda vai processar (`candidates` inteiro veio de uma única ToListAsync()
+                // antes do laço começar); um candidato futuro desanexado prematuramente nunca
+                // teria sua própria mutação (`MarkAsExpired()`) persistida por
+                // SaveChangesAsync, que só considera entidades tracked — bug real encontrado e
+                // corrigido durante a implementação desta otimização, coberto por
+                // ExpiredFileCleanupJobTests (UnitTests) já existentes.
+                _dbContext.Entry(file).State = EntityState.Detached;
+
                 expired++;
                 _metrics.StorageObjectDeleted();
             }

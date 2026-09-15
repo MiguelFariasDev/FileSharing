@@ -1,4 +1,4 @@
-# Infrastructure (AWS) — Etapas 14 e 15
+# Infrastructure (AWS) — Etapas 14, 15 e 16
 
 Este documento **prepara e documenta** o deploy em AWS — nenhum recurso descrito aqui foi de fato provisionado. Nenhum comando de `push`/`apply`/`deploy` real foi executado; tudo abaixo é o que seria necessário fazer, com exemplos concretos (comandos, JSON de Task Definition, políticas IAM), para quando o deploy real for decidido. Para a execução local via Docker Compose, ver `docs/development.md`. Para as decisões arquiteturais (diagramas, dois clientes S3, Forwarded Headers), ver `docs/architecture.md`/`docs/deployment.md`. Para os workflows do GitHub Actions que consomem os recursos descritos aqui (ECR, ECS, a IAM Role de OIDC abaixo), ver `docs/ci-cd.md`.
 
@@ -67,7 +67,7 @@ Nenhuma credencial AWS fica armazenada no projeto — `aws ecr get-login-passwor
 
 ## AWS ECS Fargate
 
-Dois serviços independentes (`filesharing-api`, `filesharing-web`), cada um com sua própria Task Definition. Valores de CPU/memória abaixo são um ponto de partida razoável para um MVP/portfólio — **não são definitivos**, ajustáveis conforme uso real observado (CloudWatch Metrics de CPU/memória da task, uma vez em produção).
+Dois serviços independentes (`filesharing-api`, `filesharing-web`), cada um com sua própria Task Definition. Valores de CPU/memória abaixo são um ponto de partida razoável para um MVP/portfólio — **não são definitivos**, ajustáveis conforme uso real observado (CloudWatch Metrics de CPU/memória da task, uma vez em produção). A Etapa 16 (`docs/performance.md`) mediu o container `filesharing-api` local usando **~70–120MiB** de memória sob carga sustentada (20 VUs por 5 minutos, sem tendência de crescimento) — um dado real, ainda que de um ambiente Docker Compose local, não do ECS Fargate real; os valores de CPU/memória da task abaixo continuam uma estimativa de partida, não derivada diretamente dessa medição.
 
 ### Task Definition — `filesharing-api` (exemplo)
 
@@ -260,3 +260,4 @@ Não containerizado (correto — é um app nativo, não um serviço de longa dur
 - `FileSharing.Web` não tinha nenhum endpoint de health check — adicionado `/health/live`.
 - Nenhum Dockerfile de produção existia para Api/Web — criados (multi-stage, não-root, sem segredo).
 - `docker-compose.yml` tinha credenciais do Postgres hardcoded — parametrizado via `.env`.
+- **Etapa 16**: `RateLimiting:Auth:PermitLimit`/`RateLimiting:PasswordReset:PermitLimit`/`ExpirationCleanup:IntervalMinutes`/`ExpirationCleanup:BatchSize` já eram configuráveis via `IConfiguration` desde etapas anteriores, mas nunca estavam conectados ao `docker-compose.yml` — conectados agora (com os mesmos valores padrão já hardcoded no código, então nada muda por padrão), necessário para os benchmarks de capacidade/volume documentados em `docs/performance.md`. Gargalo real encontrado e corrigido em `ExpiredFileCleanupJob` (change tracker do EF Core crescendo a cada item de um lote grande) — ver `docs/performance.md`, seção Hangfire.

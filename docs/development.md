@@ -1,6 +1,6 @@
 # Development
 
-Guia de execução local após a Etapa 14 (Docker + preparação para AWS). Cobre como subir a stack completa via Docker Compose, quais variáveis configurar, como aplicar migrações, e qual endereço usar para alcançar a Api a partir de cada tipo de cliente (navegador, emulador Android, dispositivo físico). Para a arquitetura dos containers e o porquê de cada decisão, ver `docs/architecture.md`/`docs/deployment.md`; para os recursos AWS de produção, ver `docs/infrastructure.md`.
+Guia de execução local após as Etapas 14 (Docker + preparação para AWS) e 16 (Performance + Load Testing). Cobre como subir a stack completa via Docker Compose, quais variáveis configurar, como aplicar migrações, e qual endereço usar para alcançar a Api a partir de cada tipo de cliente (navegador, emulador Android, dispositivo físico). Para a arquitetura dos containers e o porquê de cada decisão, ver `docs/architecture.md`/`docs/deployment.md`; para os recursos AWS de produção, ver `docs/infrastructure.md`; para a linha de base de performance/como rodar os load tests, ver `docs/performance.md`/`load-tests/README.md`.
 
 ## Pré-requisitos
 
@@ -38,6 +38,10 @@ Isso sobe quatro containers na rede `filesharing-net`:
 | `POSTGRES_PASSWORD` | Senha do Postgres do container | **Obrigatória** (`docker compose up` falha sem ela, propositalmente — ver `:?` em `docker-compose.yml`) |
 | `POSTGRES_DB` | Nome do banco | Padrão `filesharing` se omitido |
 | `JWT_SECRET_KEY` | `Jwt:SecretKey` da Api | **Obrigatória**; gere uma com `openssl rand -base64 48` |
+| `RATE_LIMITING_AUTH_PERMIT_LIMIT` | `RateLimiting:Auth:PermitLimit` (register/login/me) | Padrão `20` (igual ao já hardcoded no código) — só precisa ser elevado para benchmarks de capacidade (Etapa 16, ver `docs/performance.md`/`load-tests/README.md`) |
+| `RATE_LIMITING_PASSWORD_RESET_PERMIT_LIMIT` | `RateLimiting:PasswordReset:PermitLimit` | Padrão `5` |
+| `EXPIRATION_CLEANUP_INTERVAL_MINUTES` | `ExpirationCleanup:IntervalMinutes` (cron do Hangfire) | Padrão `15` (igual a `appsettings.json`) — reduzir só para acelerar testes manuais do job de limpeza |
+| `EXPIRATION_CLEANUP_BATCH_SIZE` | `ExpirationCleanup:BatchSize` | Padrão `100` |
 
 > **A senha do Postgres só é aplicada na primeira inicialização do volume de dados.** Se você já tinha um volume `docker_filesharing-postgres-data` de uma subida anterior (por exemplo, do Postgres rodando sem Docker Compose parametrizado), mudar `POSTGRES_PASSWORD` no `.env` **não** muda a senha já gravada no banco existente — o container do Postgres só executa a inicialização (`initdb`, que é quando `POSTGRES_PASSWORD` é aplicado) quando o diretório de dados está vazio. Nesse caso, ou (a) ajuste `POSTGRES_PASSWORD` no `.env` para o valor que já está gravado no volume, ou (b) remova o volume deliberadamente (`docker volume rm docker_filesharing-postgres-data` — **destrutivo**, apaga todos os dados locais) para reinicializar do zero com a nova senha.
 
