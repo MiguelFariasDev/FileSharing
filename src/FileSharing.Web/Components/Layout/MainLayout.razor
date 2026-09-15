@@ -2,10 +2,14 @@
 @inject AuthTokenProvider TokenProvider
 @inject ApiAuthenticationStateProvider AuthStateProvider
 @inject SignalRNotificationService NotificationService
+@inject FileSharing.Web.Services.Notifications.NotificationInboxService Inbox
 @inject NavigationManager Navigation
+@implements IDisposable
 
-<nav class="navbar navbar-expand-md navbar-dark bg-dark px-3">
-    <a class="navbar-brand" href="/dashboard">FileSharing</a>
+<nav class="navbar navbar-expand-md navbar-dark px-3" style="background-color: var(--fs-gray-900);">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="/dashboard">
+        <Icon Name="link" Size="1.35rem" /> FileSharing
+    </a>
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-nav-collapse"
             aria-controls="main-nav-collapse" aria-expanded="false" aria-label="Abrir menu de navegação">
@@ -15,10 +19,29 @@
     <div class="collapse navbar-collapse" id="main-nav-collapse">
         <ul class="navbar-nav me-auto">
             <li class="nav-item">
-                <NavLink class="nav-link" href="/dashboard">Meus arquivos</NavLink>
+                <NavLink class="nav-link d-flex align-items-center gap-1" href="/dashboard" Match="NavLinkMatch.All">
+                    <Icon Name="activity" Size="1rem" /> Dashboard
+                </NavLink>
             </li>
             <li class="nav-item">
-                <NavLink class="nav-link" href="/upload">Enviar arquivo</NavLink>
+                <NavLink class="nav-link d-flex align-items-center gap-1" href="/files">
+                    <Icon Name="files" Size="1rem" /> Meus arquivos
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link d-flex align-items-center gap-1" href="/upload">
+                    <Icon Name="upload" Size="1rem" /> Enviar arquivo
+                </NavLink>
+            </li>
+            <li class="nav-item">
+                <NavLink class="nav-link d-flex align-items-center gap-1" href="/notifications">
+                    <Icon Name="bell" Size="1rem" />
+                    Notificações
+                    @if (Inbox.Entries.Count > 0)
+                    {
+                        <span class="badge rounded-pill text-bg-primary">@Inbox.Entries.Count</span>
+                    }
+                </NavLink>
             </li>
         </ul>
 
@@ -26,8 +49,13 @@
             <Authorized>
                 <div class="d-flex align-items-center gap-3 text-light py-2 py-md-0">
                     <ConnectionStatus />
-                    <span class="small d-none d-sm-inline">@context.User.Identity?.Name</span>
-                    <button type="button" class="btn btn-outline-light btn-sm" @onclick="LogoutAsync">Sair</button>
+                    <NavLink class="nav-link d-flex align-items-center gap-1" href="/profile">
+                        <Icon Name="user-circle" Size="1.1rem" />
+                        <span class="small d-none d-sm-inline">@context.User.Identity?.Name</span>
+                    </NavLink>
+                    <button type="button" class="btn btn-outline-light btn-sm" @onclick="LogoutAsync">
+                        <Icon Name="logout" Size="0.9rem" /> Sair
+                    </button>
                 </div>
             </Authorized>
         </AuthorizeView>
@@ -40,8 +68,16 @@
 
 <ToastContainer />
 <SessionGuard />
+<NotificationInboxBridge />
 
 @code {
+    protected override void OnInitialized()
+    {
+        Inbox.Changed += OnInboxChanged;
+    }
+
+    private void OnInboxChanged() => InvokeAsync(StateHasChanged);
+
     private async Task LogoutAsync()
     {
         // Order matters: disconnect the authenticated SignalR connection before/alongside
@@ -51,5 +87,10 @@
         TokenProvider.Clear();
         AuthStateProvider.MarkUserAsLoggedOut();
         Navigation.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        Inbox.Changed -= OnInboxChanged;
     }
 }

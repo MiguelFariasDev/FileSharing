@@ -12,7 +12,7 @@
         <VerticalStackLayout Padding="24" Spacing="20">
 
             <Grid ColumnDefinitions="Auto,*">
-                <Button Grid.Column="0" Text="&#8592;" Style="{StaticResource TextButton}" Command="{Binding DoneCommand}" />
+                <Button Grid.Column="0" ImageSource="icon_arrow_left.svg" Style="{StaticResource TextButton}" Command="{Binding DoneCommand}" />
                 <Label Grid.Column="1" Text="Enviar arquivo" Style="{StaticResource SubHeadline}" VerticalOptions="Center" HorizontalOptions="Center" Margin="-40,0,0,0" />
             </Grid>
 
@@ -21,7 +21,7 @@
 
                 <Border Style="{StaticResource GlassCardBorder}" IsVisible="{Binding HasSelection, Converter={StaticResource InvertedBoolConverter}}">
                     <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
-                        <Label Text="📎" FontSize="40" HorizontalOptions="Center" />
+                        <Image Source="icon_paperclip.svg" WidthRequest="40" HeightRequest="40" HorizontalOptions="Center" />
                         <Label Text="Selecione um arquivo ou uma pasta para começar." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
                         <Button Text="Selecionar arquivo" Command="{Binding PickFileCommand}" />
                         <Button Text="Selecionar pasta" Style="{StaticResource SecondaryButton}" Command="{Binding PickFolderCommand}" />
@@ -35,7 +35,7 @@
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" BindingContext="{Binding SelectedItem}" x:DataType="models:UploadableItem">
                             <Border Grid.Column="0" WidthRequest="44" HeightRequest="44" StrokeShape="RoundRectangle 14"
                                     BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent">
-                                <Label Text="📄" FontSize="20" HorizontalOptions="Center" VerticalOptions="Center" />
+                                <Image Source="icon_file.svg" WidthRequest="20" HeightRequest="20" HorizontalOptions="Center" VerticalOptions="Center" />
                             </Border>
                             <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
                                 <Label Text="{Binding FileName}" FontFamily="OpenSansSemibold" LineBreakMode="TailTruncation" />
@@ -55,7 +55,7 @@
             <!-- 3) In progress (Fase 13 §15) -->
             <Border Style="{StaticResource GlassCardBorder}" IsVisible="{Binding IsBusy}">
                 <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
-                    <Label Text="⬆" FontSize="32" TextColor="{StaticResource Primary}" HorizontalOptions="Center" />
+                    <Image Source="icon_upload.svg" WidthRequest="32" HeightRequest="32" HorizontalOptions="Center" />
                     <Label Text="{Binding SelectedItem.FileName, StringFormat='Enviando {0}'}" FontFamily="OpenSansSemibold" HorizontalTextAlignment="Center" />
                     <ProgressBar Progress="{Binding ProgressFraction}" />
                     <Label Text="{Binding ProgressFraction, StringFormat='{0:P0}'}" FontFamily="OpenSansSemibold" FontSize="20" HorizontalOptions="Center" />
@@ -68,7 +68,7 @@
             <!-- 4) Failed -->
             <Border Style="{StaticResource GlassCardBorder}" IsVisible="{Binding IsFailed}">
                 <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
-                    <Label Text="⚠️" FontSize="36" HorizontalOptions="Center" />
+                    <Image Source="icon_alert_triangle.svg" WidthRequest="36" HeightRequest="36" HorizontalOptions="Center" />
                     <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" HorizontalTextAlignment="Center" />
                     <Button Text="Tentar novamente" Command="{Binding ConfirmUploadCommand}" />
                 </VerticalStackLayout>
@@ -77,7 +77,7 @@
             <!-- 5) Success + link (Fase 13 §19) -->
             <Border Style="{StaticResource GlassCardBorder}" IsVisible="{Binding IsCompleted}">
                 <VerticalStackLayout Spacing="16" HorizontalOptions="Center">
-                    <Label Text="✅" FontSize="40" HorizontalOptions="Center" />
+                    <Image Source="icon_circle_check.svg" WidthRequest="40" HeightRequest="40" HorizontalOptions="Center" />
                     <Label Text="Arquivo enviado!" Style="{StaticResource SubHeadline}" HorizontalOptions="Center" />
                     <Label Text="{Binding SelectedItem.FileName}" FontFamily="OpenSansSemibold" HorizontalTextAlignment="Center" />
                     <Label Text="Disponível por 24 horas." Style="{StaticResource Caption}" HorizontalOptions="Center" />
@@ -86,9 +86,9 @@
                         <Label Text="{Binding GeneratedLink}" LineBreakMode="TailTruncation" FontSize="13" />
                     </Border>
 
-                    <Button Text="Copiar link" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
+                    <Button Text="Copiar link" ImageSource="icon_copy.svg" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
                             IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
-                    <Button Text="Compartilhar" Command="{Binding ShareLinkCommand}"
+                    <Button Text="Compartilhar" ImageSource="icon_share.svg" Command="{Binding ShareLinkCommand}"
                             IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
                     <Button Text="Concluir" Style="{StaticResource TextButton}" Command="{Binding DoneCommand}" />
                 </VerticalStackLayout>

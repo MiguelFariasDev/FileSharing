@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             xmlns:activity="clr-namespace:FileSharing.Mobile.Core.Services.Activity;assembly=FileSharing.Mobile.Core"
+             x:Class="FileSharing.Mobile.Views.ActivityPage"
+             x:DataType="viewmodels:ActivityViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <Label Grid.Row="0" Text="Atividade" Style="{StaticResource Headline}" TextColor="{StaticResource Primary}" FontSize="22" Padding="24,20,24,8" />
+
+        <Grid Grid.Row="1" Padding="24">
+
+            <CollectionView ItemsSource="{Binding Entries}" IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}">
+                <CollectionView.ItemsLayout>
+                    <LinearItemsLayout Orientation="Vertical" ItemSpacing="10" />
+                </CollectionView.ItemsLayout>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="activity:ActivityEntry">
+                        <Border Style="{StaticResource GlassCardBorder}">
+                            <HorizontalStackLayout Spacing="12">
+                                <Image Source="icon_download.svg" WidthRequest="20" HeightRequest="20" />
+                                <VerticalStackLayout Spacing="2">
+                                    <Label FontFamily="OpenSansSemibold">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="{Binding Notification.OriginalFileName}" />
+                                                <Span Text=" foi baixado" />
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                    <Label Text="{Binding ReceivedAt, StringFormat='{0:dd/MM/yyyy HH:mm}'}" Style="{StaticResource Caption}" />
+                                </VerticalStackLayout>
+                            </HorizontalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+            <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Spacing="16">
+                <Image Source="icon_activity.svg" WidthRequest="40" HeightRequest="40" HorizontalOptions="Center" />
+                <Label Text="Nenhuma atividade ainda." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+                <Label Text="Você será avisado aqui assim que algum dos seus arquivos for baixado." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
+
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

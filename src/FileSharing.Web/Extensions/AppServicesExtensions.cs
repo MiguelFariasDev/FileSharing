@@ -9,6 +9,7 @@ public static class AppServicesExtensions
     {
         services.AddScoped<ToastService>();
         services.AddScoped<SignalRNotificationService>();
+        services.AddScoped<NotificationInboxService>();
 
         return services;
     }

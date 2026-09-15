@@ -15,6 +15,12 @@ public partial class UploadPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        _viewModel.Reset();
+
+        // Upload is now a bottom-nav tab, not a freshly-pushed page each time (Fase de
+        // navegação §20) — the same ViewModel instance survives switching away and back, so
+        // clearing a previous result on re-entry must never discard an upload that is still
+        // actually in flight (IsBusy) just because the user briefly switched tabs.
+        if (!_viewModel.IsBusy)
+            _viewModel.Reset();
     }
 }

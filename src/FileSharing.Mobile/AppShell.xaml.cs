@@ -13,9 +13,10 @@ public partial class AppShell : Shell
         Routing.RegisterRoute("register", typeof(RegisterPage));
         Routing.RegisterRoute("forgotpassword", typeof(ForgotPasswordPage));
         Routing.RegisterRoute("resetpassword", typeof(ResetPasswordPage));
-        Routing.RegisterRoute("upload", typeof(UploadPage));
         Routing.RegisterRoute("filedetails", typeof(FileDetailsPage));
         Routing.RegisterRoute("history", typeof(HistoryPage));
+        Routing.RegisterRoute("profile", typeof(ProfilePage));
+        Routing.RegisterRoute("settings", typeof(SettingsPage));
 
         _ = InitializeAsync(authSession, notificationService);
     }

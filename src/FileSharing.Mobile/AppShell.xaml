@@ -8,19 +8,39 @@
     Shell.NavBarIsVisible="False"
     Title="FileSharing">
 
-    <!-- Login/Register/Home/Upload/FileDetails/History form one linear flow, never a
-         flyout/tab bar — Shell.NavBarIsVisible is off everywhere; each page draws its own header
-         so it can stay consistent with the glass/blue visual language instead of the platform
-         chrome. Register/Upload/FileDetails/History are reached via Routing.RegisterRoute
-         (AppShell.xaml.cs), not declared here, since they are pushed/relative routes rather than
-         top-level shell items. -->
+    <!-- Login is the only top-level ShellContent outside the TabBar — the unauthenticated flow
+         (Register/ForgotPassword/ResetPassword) is reached by pushing routes on top of it, never
+         a tab. Once authenticated, the TabBar (Home/Arquivos/Enviar/Atividade) is the app's main
+         navigation surface (Fase de navegação §20) — Profile/Settings/FileDetails/History are
+         pushed on top of whichever tab is active, via Routing.RegisterRoute
+         (AppShell.xaml.cs), not declared here, since they are relative/detail routes rather
+         than top-level shell items. -->
 
     <ShellContent
         Route="login"
         ContentTemplate="{DataTemplate views:LoginPage}" />
 
-    <ShellContent
-        Route="home"
-        ContentTemplate="{DataTemplate views:HomePage}" />
+    <TabBar>
+        <ShellContent
+            Route="home"
+            Title="Home"
+            Icon="icon_home.svg"
+            ContentTemplate="{DataTemplate views:HomePage}" />
+        <ShellContent
+            Route="files"
+            Title="Arquivos"
+            Icon="icon_files.svg"
+            ContentTemplate="{DataTemplate views:FilesPage}" />
+        <ShellContent
+            Route="upload"
+            Title="Enviar"
+            Icon="icon_upload.svg"
+            ContentTemplate="{DataTemplate views:UploadPage}" />
+        <ShellContent
+            Route="activity"
+            Title="Atividade"
+            Icon="icon_activity.svg"
+            ContentTemplate="{DataTemplate views:ActivityPage}" />
+    </TabBar>
 
 </Shell>

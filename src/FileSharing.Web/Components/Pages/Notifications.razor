@@ -1,0 +1,52 @@
+@page "/notifications"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IDisposable
+@inject FileSharing.Web.Services.Notifications.NotificationInboxService Inbox
+
+<PageTitle>Notificações — FileSharing</PageTitle>
+
+<h1 class="h3 mb-3">Notificações</h1>
+
+@if (Inbox.Entries.Count == 0)
+{
+    <div class="alert alert-info" role="status">
+        <p class="mb-1">Nenhuma notificação ainda.</p>
+        <p class="mb-0">Você será avisado aqui assim que algum dos seus arquivos for baixado.</p>
+    </div>
+}
+else
+{
+    <p class="text-muted small">
+        Mostra apenas downloads recebidos durante esta sessão — reabrir o navegador limpa esta lista.
+    </p>
+    <ul class="list-group">
+        @foreach (var entry in Inbox.Entries)
+        {
+            <li class="list-group-item d-flex align-items-start gap-3">
+                <Icon Name="download" Size="1.25rem" Class="text-success mt-1" />
+                <div class="flex-grow-1">
+                    <div>
+                        <a href="@($"/files/{entry.Notification.FileId}")">@entry.Notification.OriginalFileName</a>
+                        foi baixado.
+                    </div>
+                    <div class="text-muted small">@FileDisplayFormatting.FormatDateTime(entry.ReceivedAt)</div>
+                </div>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Inbox.Changed += OnChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Inbox.Changed -= OnChanged;
+    }
+}

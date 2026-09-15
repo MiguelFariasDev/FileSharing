@@ -15,8 +15,8 @@
 
             <Border Grid.Column="0" WidthRequest="44" HeightRequest="44" StrokeShape="RoundRectangle 14"
                     BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent" VerticalOptions="Center">
-                <Label Text="{Binding IconKey, Converter={StaticResource IconKeyToEmojiConverter}}"
-                       FontSize="20"
+                <Image Source="{Binding IconKey, Converter={StaticResource IconKeyToImageSourceConverter}}"
+                       WidthRequest="20" HeightRequest="20"
                        HorizontalOptions="Center" VerticalOptions="Center"
                        SemanticProperties.Description="{Binding TypeLabel}" />
             </Border>

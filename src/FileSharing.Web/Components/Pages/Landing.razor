@@ -1,0 +1,155 @@
+@page "/"
+@layout FileSharing.Web.Components.Layout.LandingLayout
+
+<PageTitle>FileSharing — Compartilhe arquivos com privacidade</PageTitle>
+
+<div class="landing">
+
+    <header class="landing-header">
+        <div class="landing-container landing-header-inner">
+            <span class="landing-logo">
+                <Icon Name="link" Size="1.5rem" />
+                FileSharing
+            </span>
+
+            <nav class="landing-nav d-none d-md-flex">
+                <a href="#recursos">Recursos</a>
+                <a href="#como-funciona">Como funciona</a>
+                <a href="#seguranca">Segurança</a>
+            </nav>
+
+            <div class="landing-header-actions">
+                <a href="/login" class="btn btn-link">Entrar</a>
+                <a href="/register" class="btn btn-primary">Começar agora</a>
+            </div>
+        </div>
+    </header>
+
+    <section class="landing-hero">
+        <div class="landing-container landing-hero-inner">
+            <div class="landing-hero-copy">
+                <h1>Compartilhe arquivos com um link. Nada fica para sempre.</h1>
+                <p class="landing-hero-subtitle">
+                    Envie um arquivo, receba um link privado e não enumerável, e acompanhe cada
+                    download em tempo real. Depois de 24 horas, o link simplesmente deixa de
+                    funcionar — sem você precisar fazer nada.
+                </p>
+                <div class="landing-hero-ctas">
+                    <a href="/register" class="btn btn-primary btn-lg">Começar agora</a>
+                    <a href="/login" class="btn btn-outline-secondary btn-lg">Entrar</a>
+                </div>
+            </div>
+
+            <div class="landing-hero-mock" aria-hidden="true">
+                <div class="landing-mock-card">
+                    <div class="landing-mock-card-header">
+                        <Icon Name="file-type-pdf" Size="2rem" />
+                        <div>
+                            <div class="landing-mock-filename">contrato-final.pdf</div>
+                            <div class="landing-mock-filesize">12.4 MB</div>
+                        </div>
+                    </div>
+                    <div class="landing-mock-status">
+                        <span class="landing-mock-dot"></span>
+                        Link ativo
+                    </div>
+                    <div class="landing-mock-expiry">
+                        <Icon Name="clock" Size="1rem" />
+                        Expira em 23h 41min
+                    </div>
+                    <div class="landing-mock-link">
+                        <Icon Name="link" Size="1rem" />
+                        <span>files.filesharing.app/s/••••••••••</span>
+                    </div>
+                    <button type="button" class="btn btn-primary w-100" disabled>
+                        <Icon Name="copy" Size="1rem" /> Copiar link
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="landing-section" id="recursos">
+        <div class="landing-container">
+            <h2 class="landing-section-title">Feito para compartilhar, não para armazenar</h2>
+            <div class="landing-benefits">
+                <div class="landing-benefit-card">
+                    <Icon Name="link" Size="2rem" Class="landing-benefit-icon" />
+                    <h3>Compartilhe com um link</h3>
+                    <p>Um link privado e imprevisível é tudo que o destinatário precisa — nenhuma conta é exigida dele.</p>
+                </div>
+                <div class="landing-benefit-card">
+                    <Icon Name="clock" Size="2rem" Class="landing-benefit-icon" />
+                    <h3>Expiração automática</h3>
+                    <p>Todo arquivo expira exatamente 24 horas após o envio. Nada fica esquecido na nuvem para sempre.</p>
+                </div>
+                <div class="landing-benefit-card">
+                    <Icon Name="activity" Size="2rem" Class="landing-benefit-icon" />
+                    <h3>Acompanhe os downloads</h3>
+                    <p>Saiba exatamente quando seu arquivo foi baixado, com notificação em tempo real.</p>
+                </div>
+                <div class="landing-benefit-card">
+                    <Icon Name="shield-lock" Size="2rem" Class="landing-benefit-icon" />
+                    <h3>Arquivos privados</h3>
+                    <p>Armazenamento privado por padrão — o acesso só existe através do link que você compartilha.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="landing-section landing-section-alt" id="como-funciona">
+        <div class="landing-container">
+            <h2 class="landing-section-title">Como funciona</h2>
+            <div class="landing-steps">
+                <div class="landing-step">
+                    <span class="landing-step-number">01</span>
+                    <Icon Name="upload" Size="1.75rem" Class="landing-step-icon" />
+                    <h3>Envie</h3>
+                    <p>Selecione um arquivo ou uma pasta inteira. O envio vai direto para um armazenamento privado.</p>
+                </div>
+                <div class="landing-step">
+                    <span class="landing-step-number">02</span>
+                    <Icon Name="share" Size="1.75rem" Class="landing-step-icon" />
+                    <h3>Compartilhe</h3>
+                    <p>Copie o link gerado e envie a quem precisa recebê-lo — por onde você preferir.</p>
+                </div>
+                <div class="landing-step">
+                    <span class="landing-step-number">03</span>
+                    <Icon Name="activity" Size="1.75rem" Class="landing-step-icon" />
+                    <h3>Acompanhe</h3>
+                    <p>Veja quando o arquivo é baixado e por quanto tempo o link ainda estará ativo.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="landing-section" id="seguranca">
+        <div class="landing-container">
+            <h2 class="landing-section-title">Segurança, não só uma promessa</h2>
+            <p class="landing-section-subtitle">Apenas recursos que já existem no produto hoje.</p>
+            <ul class="landing-security-list">
+                <li><Icon Name="key" Size="1.25rem" /> Cada link usa um token com 256 bits de entropia — nunca sequencial, nunca previsível.</li>
+                <li><Icon Name="lock" Size="1.25rem" /> Somente o hash do token é armazenado; o link em texto puro nunca fica salvo em lugar nenhum.</li>
+                <li><Icon Name="shield" Size="1.25rem" /> O armazenamento é privado por padrão — todo acesso passa por uma URL assinada e de curta duração.</li>
+                <li><Icon Name="alert-circle" Size="1.25rem" /> Um link inexistente ou expirado recebe sempre a mesma resposta — nunca é possível descobrir se um arquivo já existiu.</li>
+                <li><Icon Name="clock" Size="1.25rem" /> Expiração automática em 24 horas, sem exceção.</li>
+                <li><Icon Name="shield-lock" Size="1.25rem" /> Limite de tentativas nas rotas mais sensíveis, para dificultar abuso automatizado.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="landing-cta">
+        <div class="landing-container landing-cta-inner">
+            <h2>Comece a compartilhar seus arquivos.</h2>
+            <a href="/register" class="btn btn-primary btn-lg">Começar agora</a>
+        </div>
+    </section>
+
+    <footer class="landing-footer">
+        <div class="landing-container">
+            <span>FileSharing</span>
+            <a href="/login">Entrar</a>
+        </div>
+    </footer>
+
+</div>

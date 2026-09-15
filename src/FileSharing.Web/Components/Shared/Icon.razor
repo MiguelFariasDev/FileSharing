@@ -1,0 +1,13 @@
+@* Renders one vendored Tabler Icons SVG (see IconLibrary/THIRD-PARTY-NOTICES.md) inline, so it
+   inherits `color` from CSS exactly like a font icon — no colored variant per icon per use site,
+   no external request, no emoji/Unicode symbol standing in for UI chrome. *@
+
+<span class="fs-icon @Class" style="--fs-icon-size: @Size" aria-hidden="true">
+    @((MarkupString)IconLibrary.Get(Name))
+</span>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string Size { get; set; } = "1.25rem";
+}

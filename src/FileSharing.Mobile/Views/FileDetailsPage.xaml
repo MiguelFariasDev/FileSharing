@@ -39,7 +39,7 @@
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14" BindingContext="{Binding File}">
                     <Border Grid.Column="0" WidthRequest="48" HeightRequest="48" StrokeShape="RoundRectangle 16"
                             BackgroundColor="{StaticResource PrimaryTint}" Stroke="Transparent">
-                        <Label Text="{Binding IconKey, Converter={StaticResource IconKeyToEmojiConverter}}" FontSize="22"
+                        <Image Source="{Binding IconKey, Converter={StaticResource IconKeyToImageSourceConverter}}" WidthRequest="22" HeightRequest="22"
                                HorizontalOptions="Center" VerticalOptions="Center" />
                     </Border>
                     <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
@@ -79,17 +79,17 @@
                     <Border Style="{StaticResource FieldBorder}" IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}">
                         <Label Text="{Binding GeneratedLink}" LineBreakMode="TailTruncation" FontSize="13" />
                     </Border>
-                    <Button Text="↗ Compartilhar link" Command="{Binding ShareLinkCommand}"
+                    <Button Text="Compartilhar link" ImageSource="icon_share.svg" Command="{Binding ShareLinkCommand}"
                             IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
-                    <Button Text="⧉ Copiar link" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
+                    <Button Text="Copiar link" ImageSource="icon_copy.svg" Style="{StaticResource SecondaryButton}" Command="{Binding CopyLinkCommand}"
                             IsVisible="{Binding GeneratedLink, Converter={StaticResource StringToBoolConverter}}" />
 
-                    <Button Text="↻ Gerar link" Style="{StaticResource SecondaryButton}"
+                    <Button Text="Gerar link" ImageSource="icon_refresh.svg" Style="{StaticResource SecondaryButton}"
                             IsVisible="{Binding GeneratedLink, Converter={StaticResource InvertedBoolConverter}}"
                             IsEnabled="{Binding LinkBusy, Converter={StaticResource InvertedBoolConverter}}"
                             Command="{Binding GenerateOrRegenerateClickedCommand}" />
 
-                    <Button Text="↓ Histórico" Style="{StaticResource SecondaryButton}" Command="{Binding ViewHistoryCommand}" />
+                    <Button Text="Histórico" ImageSource="icon_history.svg" Style="{StaticResource SecondaryButton}" Command="{Binding ViewHistoryCommand}" />
 
                     <ActivityIndicator IsRunning="{Binding LinkBusy}" IsVisible="{Binding LinkBusy}" Color="{StaticResource Primary}" />
                     <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}"

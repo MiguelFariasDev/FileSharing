@@ -11,7 +11,7 @@
     <Grid RowDefinitions="Auto,*">
 
         <Grid Grid.Row="0" Padding="24,20,24,8" ColumnDefinitions="Auto,*">
-            <Button Grid.Column="0" Text="&#8592;" Style="{StaticResource TextButton}" Clicked="OnBackClicked" />
+            <Button Grid.Column="0" ImageSource="icon_arrow_left.svg" Style="{StaticResource TextButton}" Clicked="OnBackClicked" />
             <Label Grid.Column="1" Text="Histórico de downloads" Style="{StaticResource SubHeadline}" VerticalOptions="Center" Margin="-40,0,0,0" HorizontalOptions="Center" />
         </Grid>
 
@@ -25,7 +25,7 @@
                     <DataTemplate x:DataType="files:DownloadHistoryEntryResponse">
                         <Border Style="{StaticResource GlassCardBorder}">
                             <HorizontalStackLayout Spacing="10">
-                                <Label Text="⬇" TextColor="{StaticResource Primary}" VerticalOptions="Center" />
+                                <Image Source="icon_download.svg" WidthRequest="18" HeightRequest="18" VerticalOptions="Center" />
                                 <Label Text="{Binding DownloadedAt, StringFormat='{0:dd/MM/yyyy HH:mm}'}" VerticalOptions="Center" />
                             </HorizontalStackLayout>
                         </Border>
@@ -34,7 +34,7 @@
             </CollectionView>
 
             <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Spacing="12">
-                <Label Text="🕒" FontSize="40" HorizontalOptions="Center" />
+                <Image Source="icon_clock.svg" WidthRequest="40" HeightRequest="40" HorizontalOptions="Center" />
                 <Label Text="Este arquivo ainda não foi baixado." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
             </VerticalStackLayout>
 

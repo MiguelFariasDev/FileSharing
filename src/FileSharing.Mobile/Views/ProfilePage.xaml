@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:FileSharing.Mobile.Core.ViewModels;assembly=FileSharing.Mobile.Core"
+             x:Class="FileSharing.Mobile.Views.ProfilePage"
+             x:DataType="viewmodels:ProfileViewModel"
+             Shell.NavBarIsVisible="False"
+             Background="{StaticResource AppBackgroundBrush}">
+
+    <VerticalStackLayout Padding="24" Spacing="24">
+
+        <Grid ColumnDefinitions="Auto,*">
+            <Button Grid.Column="0" ImageSource="icon_arrow_left.svg" Style="{StaticResource TextButton}" Clicked="OnBackClicked" />
+            <Label Grid.Column="1" Text="Perfil" Style="{StaticResource SubHeadline}" VerticalOptions="Center" Margin="-40,0,0,0" HorizontalOptions="Center" />
+        </Grid>
+
+        <VerticalStackLayout HorizontalOptions="Center" Spacing="12">
+            <Border WidthRequest="72" HeightRequest="72" StrokeShape="RoundRectangle 36" BackgroundColor="{StaticResource Primary}" Stroke="Transparent">
+                <Label Text="{Binding UserEmail, Converter={StaticResource InitialLetterConverter}}"
+                       TextColor="{StaticResource White}" FontSize="28" FontFamily="OpenSansSemibold"
+                       HorizontalOptions="Center" VerticalOptions="Center" />
+            </Border>
+            <Label Text="{Binding UserEmail}" FontFamily="OpenSansSemibold" HorizontalTextAlignment="Center" />
+            <HorizontalStackLayout Spacing="6" HorizontalOptions="Center">
+                <Image Source="icon_shield.svg" WidthRequest="16" HeightRequest="16" />
+                <Label Text="Conta ativa" Style="{StaticResource Caption}" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+        <BoxView HeightRequest="1" Color="{StaticResource Gray200}" />
+
+        <Button Text="Configurações" ImageSource="icon_settings.svg" Style="{StaticResource SecondaryButton}" Command="{Binding GoToSettingsCommand}" />
+        <Button Text="Sair" ImageSource="icon_logout.svg" Style="{StaticResource DestructiveButton}" Command="{Binding LogoutCommand}" />
+
+    </VerticalStackLayout>
+
+</ContentPage>

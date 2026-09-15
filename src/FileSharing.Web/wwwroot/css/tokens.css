@@ -1,0 +1,123 @@
+/*
+ * FileSharing design tokens — Web.
+ *
+ * Mirrors the Mobile app's own token set (src/FileSharing.Mobile/Resources/Styles/Colors.xaml)
+ * value-for-value so the two clients read as one product with two different, platform-native
+ * interactions (Fase de navegação §35/§36) — never as two independently-designed apps that
+ * happen to share a name.
+ *
+ * Bootstrap's own CSS variables are re-pointed at these tokens (--bs-primary, --bs-border-radius,
+ * ...) so every existing .btn-primary/.alert/.badge/card etc. picks up the identity automatically,
+ * without a rewrite of every page that already uses plain Bootstrap classes.
+ */
+
+:root {
+    /* --- Brand palette (same hex values as Colors.xaml) --- */
+    --fs-primary: #2563eb;
+    --fs-primary-dark: #1e40af;
+    --fs-primary-light: #93c5fd;
+    --fs-primary-tint: #eff6ff;
+    --fs-secondary: #0ea5e9;
+
+    /* --- Neutral scale --- */
+    --fs-gray-50: #f8fafc;
+    --fs-gray-100: #f1f5f9;
+    --fs-gray-200: #e2e8f0;
+    --fs-gray-300: #cbd5e1;
+    --fs-gray-400: #94a3b8;
+    --fs-gray-500: #64748b;
+    --fs-gray-600: #475569;
+    --fs-gray-700: #334155;
+    --fs-gray-800: #1e293b;
+    --fs-gray-900: #0f172a;
+
+    /* --- Status --- */
+    --fs-success: #16a34a;
+    --fs-success-tint: #dcfce7;
+    --fs-warning: #d97706;
+    --fs-warning-tint: #fef3c7;
+    --fs-danger: #dc2626;
+    --fs-danger-tint: #fee2e2;
+
+    /* --- Semantic surface tokens --- */
+    --fs-background: var(--fs-gray-50);
+    --fs-surface: #ffffff;
+    --fs-surface-elevated: #ffffff;
+    --fs-text-primary: var(--fs-gray-900);
+    --fs-text-secondary: var(--fs-gray-500);
+    --fs-border: var(--fs-gray-200);
+
+    /* --- Radius scale (same px values as GlassCardBorder/FieldBorder/PrimaryButton in Styles.xaml) --- */
+    --fs-radius-small: 0.875rem;  /* 14px — inputs */
+    --fs-radius-medium: 1rem;     /* 16px — buttons */
+    --fs-radius-large: 1.5rem;    /* 24px — cards */
+
+    /* --- Spacing scale --- */
+    --fs-spacing-small: 0.5rem;   /* 8px */
+    --fs-spacing-medium: 1rem;    /* 16px */
+    --fs-spacing-large: 1.5rem;   /* 24px */
+
+    /* --- Glass surface (subtle — used sparingly, e.g. the Landing hero card) --- */
+    --fs-glass-surface: rgba(255, 255, 255, 0.8);
+    --fs-glass-border: rgba(255, 255, 255, 0.6);
+
+    /* --- Re-point Bootstrap's own tokens so existing components inherit the identity --- */
+    --bs-primary: var(--fs-primary);
+    --bs-primary-rgb: 37, 99, 235;
+    --bs-link-color: var(--fs-primary);
+    --bs-link-color-rgb: 37, 99, 235;
+    --bs-link-hover-color: var(--fs-primary-dark);
+    --bs-link-hover-color-rgb: 30, 64, 175;
+    --bs-success: var(--fs-success);
+    --bs-success-rgb: 22, 163, 74;
+    --bs-warning: var(--fs-warning);
+    --bs-warning-rgb: 217, 119, 6;
+    --bs-danger: var(--fs-danger);
+    --bs-danger-rgb: 220, 38, 38;
+    --bs-body-color: var(--fs-text-primary);
+    --bs-body-bg: var(--fs-background);
+    --bs-border-color: var(--fs-border);
+    --bs-border-radius: var(--fs-radius-small);
+    --bs-border-radius-lg: var(--fs-radius-medium);
+    --bs-border-radius-sm: 0.5rem;
+}
+
+.btn-primary {
+    --bs-btn-bg: var(--fs-primary);
+    --bs-btn-border-color: var(--fs-primary);
+    --bs-btn-hover-bg: var(--fs-primary-dark);
+    --bs-btn-hover-border-color: var(--fs-primary-dark);
+    --bs-btn-active-bg: var(--fs-primary-dark);
+    --bs-btn-active-border-color: var(--fs-primary-dark);
+    --bs-btn-border-radius: var(--fs-radius-medium);
+}
+
+.btn {
+    --bs-btn-border-radius: var(--fs-radius-medium);
+}
+
+.card,
+.auth-card {
+    border-radius: var(--fs-radius-large) !important;
+}
+
+.form-control,
+.form-select {
+    border-radius: var(--fs-radius-small);
+}
+
+/* --- Icon component (Components/Shared/Icon.razor) --- */
+.fs-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--fs-icon-size, 1.25rem);
+    height: var(--fs-icon-size, 1.25rem);
+    line-height: 0;
+    flex-shrink: 0;
+}
+
+.fs-icon svg {
+    width: 100%;
+    height: 100%;
+}

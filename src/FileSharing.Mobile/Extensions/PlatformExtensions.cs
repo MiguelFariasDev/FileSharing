@@ -11,6 +11,7 @@ public static class PlatformExtensions
         services.AddSingleton<IClipboardService, ClipboardService>();
         services.AddSingleton<IShareService, ShareService>();
         services.AddSingleton<IMainThreadDispatcher, MainThreadDispatcher>();
+        services.AddSingleton<IAppInfoService, AppInfoService>();
 
         return services;
     }

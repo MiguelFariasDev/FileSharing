@@ -10,7 +10,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="24" Spacing="24">
 
-            <Button Text="&#8592; Voltar" Style="{StaticResource TextButton}" HorizontalOptions="Start"
+            <Button Text="Voltar" ImageSource="icon_arrow_left.svg" Style="{StaticResource TextButton}" HorizontalOptions="Start"
                     Command="{Binding GoToLoginCommand}" />
 
             <VerticalStackLayout Spacing="6">

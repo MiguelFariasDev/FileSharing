@@ -203,7 +203,10 @@ public partial class UploadViewModel : ObservableObject
     private async Task DoneAsync()
     {
         Reset();
-        await _navigation.GoBackAsync();
+        // Upload is now a bottom-nav tab (Fase de navegação §20), not a pushed page — "Concluir"
+        // switches tabs back to Home rather than popping a navigation stack that no longer
+        // applies to it.
+        await _navigation.GoToRootAsync("//home");
     }
 
     private static string FormatBytes(long bytes) => bytes switch

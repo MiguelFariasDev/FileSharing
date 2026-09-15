@@ -21,11 +21,6 @@ public static class ApiClientExtensions
             client.BaseAddress = new Uri(apiSettings.BaseUrl);
         });
 
-        // Deliberately separate and unconfigured (no BaseAddress, no default headers): the
-        // upload flow's step 2 PUTs straight to a presigned S3 URL, which already carries its
-        // own authorization — this client must never see the Api's bearer token or base address.
-        services.AddHttpClient<S3UploadHttpClient>();
-
         return services;
     }
 }

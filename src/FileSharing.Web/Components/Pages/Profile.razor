@@ -1,0 +1,54 @@
+@page "/profile"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject AuthTokenProvider TokenProvider
+@inject ApiAuthenticationStateProvider AuthStateProvider
+@inject SignalRNotificationService NotificationService
+@inject NavigationManager Navigation
+
+<PageTitle>Perfil — FileSharing</PageTitle>
+
+<h1 class="h3 mb-3">Perfil</h1>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width:3.5rem;height:3.5rem;font-size:1.5rem;">
+                @InitialFor(context.User.Identity?.Name)
+            </div>
+            <div>
+                <div class="fw-bold">@context.User.Identity?.Name</div>
+                <div class="text-muted small">
+                    <Icon Name="shield" Size="0.9rem" /> Conta ativa
+                </div>
+            </div>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+<h2 class="h6">Configurações</h2>
+<ul class="list-group mb-4">
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        <span>Versão do aplicativo</span>
+        <span class="text-muted small">Web</span>
+    </li>
+</ul>
+
+<button type="button" class="btn btn-outline-danger" @onclick="LogoutAsync">
+    <Icon Name="logout" Size="1rem" /> Sair
+</button>
+
+@code {
+    private static string InitialFor(string? email) =>
+        string.IsNullOrEmpty(email) ? "?" : email[..1].ToUpperInvariant();
+
+    private async Task LogoutAsync()
+    {
+        // Same order as MainLayout.LogoutAsync — SignalR disconnected before/alongside auth
+        // state being cleared, so an authenticated hub connection never outlives its session.
+        await NotificationService.StopAsync();
+        TokenProvider.Clear();
+        AuthStateProvider.MarkUserAsLoggedOut();
+        Navigation.NavigateTo("/login");
+    }
+}

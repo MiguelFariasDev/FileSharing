@@ -10,73 +10,95 @@
 
     <Grid RowDefinitions="Auto,*">
 
-        <!-- Header -->
-        <VerticalStackLayout Grid.Row="0" Padding="24,20,24,8" Spacing="4">
-            <Grid ColumnDefinitions="*,Auto">
-                <VerticalStackLayout Grid.Column="0" Spacing="2">
-                    <Label Text="FileSharing" Style="{StaticResource Headline}" TextColor="{StaticResource Primary}" FontSize="24" />
-                    <Label Text="{Binding UserEmail}" Style="{StaticResource Caption}" />
+        <!-- Header: greeting + avatar (Perfil lives behind the avatar, never a tab of its own —
+             Fase de navegação §20). -->
+        <Grid Grid.Row="0" Padding="24,20,24,8" ColumnDefinitions="*,Auto">
+            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                <Label Text="Olá 👋" Style="{StaticResource Headline}" TextColor="{StaticResource Primary}" FontSize="24" />
+                <Label Text="{Binding UserEmail}" Style="{StaticResource Caption}" />
+            </VerticalStackLayout>
+            <ImageButton Grid.Column="1" Source="icon_user_circle.svg" WidthRequest="36" HeightRequest="36"
+                         BackgroundColor="Transparent" VerticalOptions="Start"
+                         Command="{Binding GoToProfileCommand}"
+                         SemanticProperties.Description="Perfil" />
+        </Grid>
+
+        <RefreshView Grid.Row="1" Command="{Binding LoadCommand}">
+            <ScrollView>
+                <VerticalStackLayout Padding="24,0,24,24" Spacing="16">
+
+                    <Button Text="Enviar arquivo" ImageSource="icon_upload.svg" Command="{Binding GoToUploadCommand}" />
+
+                    <!-- Loading -->
+                    <VerticalStackLayout IsVisible="{Binding IsLoading}" Spacing="12" Margin="0,24,0,0">
+                        <ActivityIndicator IsRunning="{Binding IsLoading}" Color="{StaticResource Primary}" />
+                        <Label Text="Carregando..." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
+                    </VerticalStackLayout>
+
+                    <!-- Error -->
+                    <VerticalStackLayout IsVisible="{Binding HasError}" Spacing="12" Margin="0,24,0,0">
+                        <Image Source="icon_alert_triangle.svg" WidthRequest="36" HeightRequest="36" HorizontalOptions="Center" />
+                        <Label Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" HorizontalTextAlignment="Center" />
+                        <Button Text="Tentar novamente" Style="{StaticResource SecondaryButton}" Command="{Binding LoadCommand}" />
+                    </VerticalStackLayout>
+
+                    <!-- Summary / recent files / empty state — shown once loading+error are past. -->
+                    <VerticalStackLayout Spacing="16" IsVisible="{Binding IsLoading, Converter={StaticResource InvertedBoolConverter}}">
+
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10" IsVisible="{Binding HasError, Converter={StaticResource InvertedBoolConverter}}">
+                            <Border Grid.Column="0" Style="{StaticResource GlassCardBorder}" Padding="12">
+                                <VerticalStackLayout Spacing="2">
+                                    <Label Text="{Binding ActiveCount}" FontFamily="OpenSansSemibold" FontSize="22" TextColor="{StaticResource Success}" />
+                                    <Label Text="Ativos" Style="{StaticResource Caption}" FontSize="11" />
+                                </VerticalStackLayout>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource GlassCardBorder}" Padding="12">
+                                <VerticalStackLayout Spacing="2">
+                                    <Label Text="{Binding ExpiringSoonCount}" FontFamily="OpenSansSemibold" FontSize="22" TextColor="{StaticResource Warning}" />
+                                    <Label Text="Expirando" Style="{StaticResource Caption}" FontSize="11" />
+                                </VerticalStackLayout>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource GlassCardBorder}" Padding="12">
+                                <VerticalStackLayout Spacing="2">
+                                    <Label Text="{Binding RecentDownloadsCount}" FontFamily="OpenSansSemibold" FontSize="22" TextColor="{StaticResource Primary}" />
+                                    <Label Text="Downloads" Style="{StaticResource Caption}" FontSize="11" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </Grid>
+
+                        <Border Style="{StaticResource GlassCardBorder}" IsVisible="{Binding LastActivityLabel, Converter={StaticResource StringToBoolConverter}}">
+                            <HorizontalStackLayout Spacing="10">
+                                <Image Source="icon_download.svg" WidthRequest="18" HeightRequest="18" />
+                                <Label Text="{Binding LastActivityLabel}" VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                        </Border>
+
+                        <Label Text="Arquivos recentes" Style="{StaticResource SubHeadline}" FontSize="16" IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}" />
+                        <CollectionView ItemsSource="{Binding RecentFiles}" IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}">
+                            <CollectionView.ItemsLayout>
+                                <LinearItemsLayout Orientation="Vertical" ItemSpacing="10" />
+                            </CollectionView.ItemsLayout>
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="viewmodels:FileItemViewModel">
+                                    <components:FileCard File="{Binding .}"
+                                                          MenuCommand="{Binding BindingContext.OpenFileDetailsCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+
+                        <Button Text="Ver todos os arquivos" Style="{StaticResource TextButton}" Command="{Binding GoToFilesCommand}"
+                                IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}" />
+
+                        <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Padding="0,32" Spacing="16">
+                            <Image Source="icon_folder.svg" WidthRequest="48" HeightRequest="48" HorizontalOptions="Center" />
+                            <Label Text="Você ainda não enviou nenhum arquivo." HorizontalTextAlignment="Center" Style="{StaticResource Caption}" />
+                        </VerticalStackLayout>
+
+                    </VerticalStackLayout>
+
                 </VerticalStackLayout>
-                <Button Grid.Column="1" Text="Sair" Style="{StaticResource TextButton}" VerticalOptions="Start"
-                        Command="{Binding LogoutCommand}" />
-            </Grid>
-            <Label Text="Seus arquivos" Style="{StaticResource SubHeadline}" Margin="0,12,0,0" />
-        </VerticalStackLayout>
-
-        <RefreshView Grid.Row="1" IsRefreshing="{Binding IsRefreshing}" Command="{Binding RefreshCommand}">
-            <Grid>
-
-                <CollectionView ItemsSource="{Binding Files}" Margin="24,0,24,24"
-                                IsVisible="{Binding IsEmpty, Converter={StaticResource InvertedBoolConverter}}">
-                    <CollectionView.Header>
-                        <Button Text="+ Enviar arquivo" Margin="0,0,0,16" Command="{Binding GoToUploadCommand}" />
-                    </CollectionView.Header>
-                    <CollectionView.ItemsLayout>
-                        <LinearItemsLayout Orientation="Vertical" ItemSpacing="12" />
-                    </CollectionView.ItemsLayout>
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="viewmodels:FileItemViewModel">
-                            <components:FileCard File="{Binding .}"
-                                                  MenuCommand="{Binding BindingContext.OpenFileDetailsCommand, Source={RelativeSource AncestorType={x:Type ContentPage}}}" />
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-
-                <!-- Empty state (Fase 13 §25) -->
-                <VerticalStackLayout IsVisible="{Binding IsEmpty}" VerticalOptions="Center" Padding="32" Spacing="16">
-                    <Label Text="📂" FontSize="48" HorizontalOptions="Center" />
-                    <Label Text="Você ainda não enviou nenhum arquivo." HorizontalTextAlignment="Center" Style="{StaticResource Caption}" />
-                    <Button Text="Enviar arquivo" Command="{Binding GoToUploadCommand}" HorizontalOptions="Center" />
-                </VerticalStackLayout>
-
-                <!-- Loading state -->
-                <VerticalStackLayout IsVisible="{Binding IsLoading}" VerticalOptions="Center" Spacing="12">
-                    <ActivityIndicator IsRunning="{Binding IsLoading}" Color="{StaticResource Primary}" />
-                    <Label Text="Carregando seus arquivos..." Style="{StaticResource Caption}" HorizontalTextAlignment="Center" />
-                </VerticalStackLayout>
-
-                <!-- Error state -->
-                <VerticalStackLayout IsVisible="{Binding HasError}" VerticalOptions="Center" Padding="32" Spacing="16">
-                    <Label Text="⚠️" FontSize="40" HorizontalOptions="Center" />
-                    <Label Text="Não foi possível carregar seus arquivos." HorizontalTextAlignment="Center" Style="{StaticResource ErrorText}" />
-                    <Button Text="Tentar novamente" Style="{StaticResource SecondaryButton}" HorizontalOptions="Center" Command="{Binding LoadCommand}" />
-                </VerticalStackLayout>
-
-            </Grid>
+            </ScrollView>
         </RefreshView>
-
-        <!-- Download-notification banner (Fase 13 §24) — an in-app SignalR-driven banner, never
-             an Android push notification (explicitly out of scope this phase). -->
-        <Border Grid.Row="1" VerticalOptions="Start" Margin="16,12" Padding="16,12"
-                BackgroundColor="{StaticResource PrimaryDark}" StrokeShape="RoundRectangle 16" Stroke="Transparent"
-                IsVisible="{Binding IsToastVisible}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                <Label Grid.Column="0" Text="{Binding ToastMessage}" TextColor="{StaticResource White}" FontFamily="OpenSansSemibold" />
-                <Button Grid.Column="1" Text="✕" BackgroundColor="Transparent" TextColor="{StaticResource White}"
-                        WidthRequest="32" HeightRequest="32" Padding="0" Shadow="{x:Null}"
-                        Command="{Binding DismissToastCommand}" SemanticProperties.Description="Fechar notificação" />
-            </Grid>
-        </Border>
 
     </Grid>
 

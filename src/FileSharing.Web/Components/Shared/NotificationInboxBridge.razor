@@ -1,0 +1,31 @@
+@implements IDisposable
+@inject SignalRNotificationService NotificationService
+@inject FileSharing.Web.Services.Notifications.NotificationInboxService Inbox
+@inject ToastService ToastService
+
+@* Renders nothing — mounted once in MainLayout (alongside SessionGuard/ToastContainer) purely
+   to feed every FileDownloaded event into NotificationInboxService, and show a toast for it,
+   for as long as the authenticated circuit lives — regardless of which page happens to be open
+   when the event arrives, so this fires app-wide rather than only while, say, Files.razor is
+   the current page. *@
+
+@code {
+    protected override void OnInitialized()
+    {
+        NotificationService.FileDownloaded += HandleFileDownloaded;
+    }
+
+    private void HandleFileDownloaded(FileDownloadedNotification notification)
+    {
+        InvokeAsync(() =>
+        {
+            Inbox.Add(notification);
+            ToastService.ShowSuccess($"Seu arquivo {notification.OriginalFileName} foi baixado.");
+        });
+    }
+
+    public void Dispose()
+    {
+        NotificationService.FileDownloaded -= HandleFileDownloaded;
+    }
+}

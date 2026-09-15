@@ -11,10 +11,11 @@
                 <ResourceDictionary Source="Resources/Styles/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <converters:IconKeyToEmojiConverter x:Key="IconKeyToEmojiConverter" />
+            <converters:IconKeyToImageSourceConverter x:Key="IconKeyToImageSourceConverter" />
             <converters:StatusLabelToKindConverter x:Key="StatusLabelToKindConverter" />
             <converters:StringToBoolConverter x:Key="StringToBoolConverter" />
             <converters:InvertedBoolConverter x:Key="InvertedBoolConverter" />
+            <converters:InitialLetterConverter x:Key="InitialLetterConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

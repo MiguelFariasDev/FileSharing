@@ -23,17 +23,8 @@ public class WebComponentTestContext : TestContext
     public ApiAuthenticationStateProvider AuthStateProvider { get; }
     public RoutedFakeHttpMessageHandler Handler { get; }
 
-    /// <summary>
-    /// Backs the Upload page's step-2 PUT to a (fake) presigned URL — a separate handler from
-    /// <see cref="Handler"/>, mirroring how S3UploadHttpClient is a distinct HttpClient from
-    /// FileSharingApiClient's in production. Defaults to always answering 200 OK, since most
-    /// tests only care about the Api-facing steps (initiate/complete) and never need to
-    /// specifically exercise the S3 PUT itself.
-    /// </summary>
-    public RoutedFakeHttpMessageHandler UploadHandler { get; }
-
     public WebComponentTestContext(Func<HttpRequestMessage, HttpResponseMessage> responder)
-        : this(new RoutedFakeHttpMessageHandler(responder), new RoutedFakeHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)))
+        : this(new RoutedFakeHttpMessageHandler(responder))
     {
     }
 
@@ -42,26 +33,13 @@ public class WebComponentTestContext : TestContext
     /// observe a component's in-flight/loading state before completing it.
     /// </summary>
     public WebComponentTestContext(Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)
-        : this(new RoutedFakeHttpMessageHandler(responder), new RoutedFakeHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)))
+        : this(new RoutedFakeHttpMessageHandler(responder))
     {
     }
 
-    /// <summary>Lets a test control both the Api responder and the S3-PUT responder independently (Upload page tests).</summary>
-    public WebComponentTestContext(Func<HttpRequestMessage, HttpResponseMessage> apiResponder, Func<HttpRequestMessage, HttpResponseMessage> uploadResponder)
-        : this(new RoutedFakeHttpMessageHandler(apiResponder), new RoutedFakeHttpMessageHandler(uploadResponder))
-    {
-    }
-
-    /// <summary>As above, but the S3-PUT responder can hold the response open (e.g. a TaskCompletionSource) — needed to observe/exercise cancellation mid-upload.</summary>
-    public WebComponentTestContext(Func<HttpRequestMessage, HttpResponseMessage> apiResponder, Func<HttpRequestMessage, Task<HttpResponseMessage>> uploadResponder)
-        : this(new RoutedFakeHttpMessageHandler(apiResponder), new RoutedFakeHttpMessageHandler(uploadResponder))
-    {
-    }
-
-    private WebComponentTestContext(RoutedFakeHttpMessageHandler handler, RoutedFakeHttpMessageHandler uploadHandler)
+    private WebComponentTestContext(RoutedFakeHttpMessageHandler handler)
     {
         Handler = handler;
-        UploadHandler = uploadHandler;
 
         var httpClient = new HttpClient(Handler) { BaseAddress = new Uri(FakeApiBaseUrl) };
         TokenProvider = new AuthTokenProvider();
@@ -71,8 +49,8 @@ public class WebComponentTestContext : TestContext
         Services.AddSingleton(AuthStateProvider);
         Services.AddSingleton<Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider>(AuthStateProvider);
         Services.AddSingleton(new FileSharingApiClient(httpClient, TokenProvider));
-        Services.AddSingleton(new S3UploadHttpClient(UploadHandler));
         Services.AddSingleton(new ToastService());
+        Services.AddSingleton(new NotificationInboxService());
         Services.AddSingleton(new SignalRNotificationService(
             Options.Create(new ApiSettings { BaseUrl = FakeApiBaseUrl }),
             TokenProvider,
